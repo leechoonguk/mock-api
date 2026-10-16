@@ -10,19 +10,8 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.engine.matcher import condition_key
 from app.models.endpoint import Endpoint
 from app.schemas.endpoint import EndpointCreateInternal, EndpointUpdateRequest
-
-
-# ============================================================
-# Constants
-# ============================================================
-
-#: The nullable columns a PATCH may clear: a JSON `null` for them means "answer
-#: any query", "any body" or "the typed body, not the stored one". Every other
-#: column is NOT NULL, so `null` leaves it.
-CLEARABLE_FIELDS = frozenset({"match_query", "match_body", "body_ref"})
 
 
 # ============================================================
@@ -74,26 +63,8 @@ class EndpointRepository:
         )
         return {project_id: count for project_id, count in result.all()}
 
-    async def list_route_keys(self, project_id: UUID) -> set[tuple[str, str, str, str]]:
-        """Each route as (method, host, path, match_key) - what the unique key compares."""
-        result = await self.session.execute(
-            select(Endpoint.method, Endpoint.host, Endpoint.path, Endpoint.match_key).where(
-                Endpoint.project_id == project_id
-            )
-        )
-        return {(method, host, path, key) for method, host, path, key in result.all()}
-
-    async def list_body_refs(self) -> set[str]:
-        """Every stored answer an endpoint answers with - what the body store must keep."""
-        result = await self.session.execute(
-            select(Endpoint.body_ref).where(Endpoint.body_ref.is_not(None)).distinct()
-        )
-        return {ref for ref in result.scalars().all() if ref is not None}
-
     async def create(self, data: EndpointCreateInternal) -> Endpoint:
-        endpoint = Endpoint(
-            **data.model_dump(), match_key=condition_key(data.match_query, data.match_body)
-        )
+        endpoint = Endpoint(**data.model_dump())
         self.session.add(endpoint)
         await self.session.flush()
         return endpoint
@@ -102,10 +73,10 @@ class EndpointRepository:
         endpoint = await self.session.get(Endpoint, endpoint_id)
         if endpoint is None:
             return None
-        for field, value in data.model_dump(exclude_unset=True).items():
-            if value is not None or field in CLEARABLE_FIELDS:
-                setattr(endpoint, field, value)
-        endpoint.match_key = condition_key(endpoint.match_query, endpoint.match_body)
+        # `exclude_none`: every column here is NOT NULL, so a JSON `null` in a
+        # PATCH can only mean "leave it", never "clear it".
+        for field, value in data.model_dump(exclude_unset=True, exclude_none=True).items():
+            setattr(endpoint, field, value)
         # Set before the flush: onupdate=func.now() evaluated lazily raises
         # MissingGreenlet, and a post-flush assignment costs a second UPDATE.
         endpoint.updated_at = datetime.now(UTC)

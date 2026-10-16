@@ -8,7 +8,7 @@
 import { api } from '@/lib/api/client'
 import { LOG_ENDPOINTS } from '@/lib/api/endpoints'
 import type { OkResponse, Page } from '@/types/api'
-import type { LogListParams, RequestLog, RequestLogDetail, VolatileFieldsResponse } from '@/types/log'
+import type { LogListParams, RequestLog, RequestLogDetail } from '@/types/log'
 
 export const logService = {
   list: ({ projectId, ...params }: LogListParams, signal?: AbortSignal) =>
@@ -18,11 +18,4 @@ export const logService = {
     api.get<RequestLogDetail>(LOG_ENDPOINTS.DETAIL(projectId, id)),
 
   remove: (projectId: string) => api.delete<OkResponse>(LOG_ENDPOINTS.CLEAR(projectId)),
-
-  volatileFields: (projectId: string) =>
-    api.get<VolatileFieldsResponse>(LOG_ENDPOINTS.VOLATILE_FIELDS(projectId)),
-
-  /** The real server's whole answer — a link the browser follows, not a read of this app. */
-  responseBodyUrl: (projectId: string, id: string) =>
-    api.url(LOG_ENDPOINTS.RESPONSE_BODY(projectId, id)),
 }

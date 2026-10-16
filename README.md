@@ -5,7 +5,6 @@ Postman Mock Server처럼 동작하는 로컬 목 API 서버와 관리자 화면
 - **프로젝트**는 고유한 `slug`를 가지며 여러 **엔드포인트**를 소유합니다.
 - **엔드포인트**에는 메서드, 경로 패턴(`/users/{id}`), 상태코드, 응답 헤더, 바디 템플릿, 지연 시간을 지정합니다.
 - `/mock/{slug}/{path}`로 들어온 요청은 해당 프로젝트에서 켜져 있는 엔드포인트와 매칭되어 등록된 응답을 돌려받습니다.
-- 프로젝트에 **업스트림 URL**을 설정하면, 매칭되는 엔드포인트가 없는 요청은 실제 API로 전달(프록시)되어 그 응답이 그대로 돌아갑니다. 실제 API 중 일부만 목으로 덮어쓸 때 씁니다.
 - 존재하는 프로젝트로 들어온 요청은 매칭 여부와 관계없이 모두 **요청 로그**에 남습니다.
 
 인증이 없으므로 백엔드는 `127.0.0.1`에만 바인딩합니다. 외부에 노출하지 마세요.
@@ -103,20 +102,8 @@ curl -i localhost:47821/mock/demo/users/7
 |상황|응답|로그|
 |---|---|---|
 |매칭됨|등록된 상태코드·헤더·바디|남음 (`matched=true`)|
-|매칭 없음 + 업스트림 설정됨|업스트림의 상태코드·헤더·바디 그대로|남음 (`proxied=true`, 업스트림 상태코드)|
-|매칭 없음 + 업스트림이 응답 없음|502 `{"code":"upstream_unreachable", ...}`|남음 (`proxied=true`, 502)|
-|매칭 없음 + 업스트림 없음|404 `{"code":"mock_not_matched", "method", "path", ...}`|남음 (`matched=false`)|
+|프로젝트는 있는데 매칭 없음|404 `{"code":"mock_not_matched", "method", "path", ...}`|남음 (`matched=false`)|
 |프로젝트 없음|404 `{"code":"not_found", ...}`|남지 않음|
-
-### 업스트림 프록시
-- 프로젝트의 `upstream_url`(예: `https://api.example.com/v1`)은 생성 다이얼로그나 상세 헤더의 연필 버튼으로 설정합니다. 비우면 프록시가 꺼집니다.
-  - `http://` 또는 `https://`로 시작하는 절대 URL이어야 하고, 쿼리나 프래그먼트는 붙일 수 없습니다. 끝의 `/`는 저장할 때 떼어 냅니다.
-- 목 서버는 요청 경로를 업스트림 URL 뒤에 붙여 전달합니다: `/mock/demo/users/7?x=1` → `https://api.example.com/v1/users/7?x=1`.
-- 메서드, 요청 헤더, 바디를 그대로 보냅니다. `Host`, `Content-Length`와 연결 관련 헤더(`Connection`, `Keep-Alive` 등)는 다시 계산하거나 빼고 보냅니다.
-- 응답의 상태코드, 헤더(같은 이름이 여러 개인 `Set-Cookie` 포함), 바디를 그대로 돌려줍니다. 압축된 바디는 풀어서 돌려주므로 `Content-Encoding`은 빠집니다. 리다이렉트는 따라가지 않고 그대로 돌려줍니다.
-- 쿠키를 저장하지 않으므로, 한 호출자가 받은 쿠키가 다른 호출자의 요청에 섞이지 않습니다.
-- 업스트림이 단계(연결·전송·읽기)마다 30초 안에 응답하지 않거나 연결이 거부되면 502 `upstream_unreachable`입니다.
-- 엔드포인트 템플릿과 지연은 업스트림 응답에는 적용되지 않습니다. 사내 HTTP 프록시를 거치는 설정은 없고, 업스트림에 직접 연결합니다.
 
 요청 로그는 프로젝트마다 최신 1000건만 보관하고, 요청 바디는 64 KiB까지만 저장합니다.
 
@@ -136,16 +123,15 @@ curl -i localhost:47821/mock/demo/users/7
 
 응답 형식은 다음과 같습니다.
 - 목록은 `{"items": [...], "total": N}`이고, 삭제는 200 `{"ok": true}`입니다.
-- 에러 바디는 `{"detail", "code", "request_id"}`입니다. `code`는 `not_found`, `conflict`(slug나 메서드+경로 중복), `stale_version`, `service_unavailable`, `mock_not_matched`, `upstream_unreachable` 중 하나입니다.
+- 에러 바디는 `{"detail", "code", "request_id"}`입니다. `code`는 `not_found`, `conflict`(slug나 메서드+경로 중복), `stale_version`, `service_unavailable`, `mock_not_matched` 중 하나입니다.
 - 입력 검증 실패는 FastAPI 기본 422 형식입니다.
 
 ## 관리자 화면
 
-- **프로젝트 목록**: 이름 필터, 이름 인라인 편집, 삭제, 생성 다이얼로그(이름·slug·설명·업스트림 URL)가 있습니다. slug는 직접 고치기 전까지 이름에서 자동으로 만들어집니다.
+- **프로젝트 목록**: 이름 필터, 이름 인라인 편집, 삭제, 생성 다이얼로그가 있습니다. slug는 직접 고치기 전까지 이름에서 자동으로 만들어집니다.
 - **프로젝트 상세 다이얼로그** (URL `?detail=<id>&tab=...`)
   - **엔드포인트 탭**: 목록, 켜기/끄기 스위치, 편집·테스트·삭제 패널
-  - **헤더**: 목 기본 URL과 복사 버튼, 업스트림 URL과 설명을 그 자리에서 수정합니다.
-  - **로그 탭**: 3초마다 갱신하고, 결과를 일치/프록시/불일치로 표시합니다. 행을 누르면 요청 헤더와 바디를 보여 줍니다.
+  - **로그 탭**: 3초마다 갱신하고, 행을 누르면 요청 헤더와 바디를 보여 줍니다.
 - **테스트 패널**: 저장된 엔드포인트로 실제 요청을 보내 상태코드, 걸린 시간, 응답 헤더, 바디를 보여 줍니다. 저장하지 않은 변경은 반영되지 않습니다.
 - 언어(ko/en)와 테마는 상단 설정에서 바꿉니다.
 
@@ -171,7 +157,7 @@ curl -i localhost:47821/mock/demo/users/7
 ```
 backend/
   app/
-    core/          설정, DB 엔진(SQLite foreign_keys=ON), 예외와 핸들러, 로깅, Page, upstream.py(업스트림 전달)
+    core/          설정, DB 엔진(SQLite foreign_keys=ON), 예외와 핸들러, 로깅, Page
     engine/        DB와 무관한 순수 함수: matcher.py(경로 매칭), templating.py(바디 템플릿)
     models/        project, endpoint, request_log (테이블 하나당 파일 하나)
     schemas/       요청/응답 Pydantic 스키마

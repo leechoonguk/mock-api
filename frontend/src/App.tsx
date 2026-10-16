@@ -17,8 +17,6 @@ import { PATHS } from '@/routes/paths'
 
 const ProjectPage = lazy(() => import('@/pages/ProjectPage'))
 
-const ProxyPage = lazy(() => import('@/pages/ProxyPage'))
-
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'))
 
 export default function App() {
@@ -28,7 +26,6 @@ export default function App() {
         <Route element={<DashboardLayout />}>
           <Route path={PATHS.root} element={<Navigate to={PATHS.project} replace />} />
           <Route path={PATHS.project} element={<ProjectPage />} />
-          <Route path={PATHS.proxy} element={<ProxyPage />} />
           {/* Inside the shell: a reader on a dead link keeps the nav to go elsewhere. */}
           <Route path="*" element={<NotFoundPage />} />
         </Route>

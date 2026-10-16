@@ -2,13 +2,12 @@
  * Project query/mutation hooks.
  *
  * A project row carries its endpoint count, so the endpoint hooks invalidate
- * the project keys too; here only the project's own writes are handled - and
- * the log's suggested ignored fields, which leave out the ones it ignores.
+ * the project keys too; here only the project's own writes are handled.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { QUERY_STALE_TIME } from '@/lib/api/queryDefaults'
-import { projectKeys, volatileFieldKeys } from '@/lib/api/queryKeys'
+import { projectKeys } from '@/lib/api/queryKeys'
 import { projectService } from '@/lib/api/services/project.service'
 import type { ProjectCreateRequest, ProjectListParams, ProjectUpdateRequest } from '@/types/project'
 
@@ -46,7 +45,6 @@ export function useUpdateProject() {
     onSuccess: (project) => {
       queryClient.invalidateQueries({ queryKey: projectKeys.lists() })
       queryClient.invalidateQueries({ queryKey: projectKeys.detail(project.id) })
-      queryClient.invalidateQueries({ queryKey: volatileFieldKeys.detail(project.id) })
     },
   })
 }

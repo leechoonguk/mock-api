@@ -2,13 +2,11 @@
 # Imports
 # ============================================================
 
-import hashlib
-import json
 import re
-from collections.abc import Collection, Iterable
+from collections.abc import Iterable
 from datetime import datetime
-from typing import Literal, NamedTuple, Protocol, get_args
-from urllib.parse import parse_qsl, unquote, urlencode
+from typing import Literal, Protocol, get_args
+from urllib.parse import unquote
 from uuid import UUID
 
 
@@ -24,20 +22,11 @@ EndpointMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIO
 METHODS: tuple[str, ...] = get_args(EndpointMethod)
 ANY_METHOD = "ANY"
 
-#: The methods a request arrives with - every declared method but `ANY`.
-RequestMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
-
 #: A path segment that is a parameter: exactly `{name}`, nothing around it.
 PARAM_SEGMENT = re.compile(r"^\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
 #: Runs of slashes, which a path compares as one.
 REPEATED_SLASHES = re.compile(r"/{2,}")
-
-#: The condition key of a route that matches any query and any body.
-NO_CONDITIONS = ""
-
-#: The host of a route that answers on every host of its project.
-ANY_HOST = ""
 
 
 # ============================================================
@@ -62,23 +51,6 @@ class RouteCandidate(Protocol):
 
     @property
     def created_at(self) -> datetime: ...
-
-    @property
-    def match_query(self) -> str | None: ...
-
-    @property
-    def match_body(self) -> str | None: ...
-
-    @property
-    def host(self) -> str: ...
-
-
-class _Compared(NamedTuple):
-    """A request as conditions compare it: canonical query and body, the ignored fields out."""
-
-    query: str
-    body: str
-    ignored: Collection[str]
 
 
 # ============================================================
@@ -118,104 +90,29 @@ def pattern_problem(path: str) -> str | None:
     return None
 
 
-def canonical_query(query: str) -> str:
-    """The one spelling of a query string: its pairs sorted, blank values kept.
-
-    Two query strings name the same request when their pairs are equal, whatever
-    order the client wrote them in.
-    """
-    return urlencode(sorted(parse_qsl(query, keep_blank_values=True)))
-
-
-def strip_query(query: str, ignored: Collection[str]) -> str:
-    """`query` without the pairs whose name is in `ignored` - values a client changes per call."""
-    if not ignored:
-        return query
-    pairs = parse_qsl(query, keep_blank_values=True)
-    return urlencode([(name, value) for name, value in pairs if name not in ignored])
-
-
-def strip_body(body: str, ignored: Collection[str]) -> str:
-    """A JSON `body` without the keys named in `ignored`, at any depth; other text as is."""
-    if not ignored:
-        return body
-    try:
-        value = json.loads(body)
-    except ValueError:
-        return body
-    return json.dumps(_without(value, ignored), separators=(",", ":"), ensure_ascii=False)
-
-
-def _canonical_body(body: str) -> str:
-    """The one spelling of a body: JSON with sorted keys and no whitespace, other text as is."""
-    try:
-        value = json.loads(body)
-    except ValueError:
-        return body
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-def condition_key(match_query: str | None, match_body: str | None) -> str:
-    """What tells two routes on the same method and path apart: their conditions.
-
-    `NO_CONDITIONS` for a route that answers any query and body; otherwise a
-    digest of the canonical conditions, so two spellings of one JSON body are
-    the same route and the unique constraint refuses the second.
-    """
-    if match_query is None and match_body is None:
-        return NO_CONDITIONS
-    canonical = [
-        None if match_query is None else canonical_query(match_query),
-        None if match_body is None else _canonical_body(match_body),
-    ]
-    return hashlib.sha256(json.dumps(canonical).encode()).hexdigest()
-
-
 def find_best[R: RouteCandidate](
-    routes: Iterable[R],
-    method: str,
-    host: str,
-    path: str,
-    query: str,
-    body: str,
-    ignored: Collection[str] = (),
+    routes: Iterable[R], method: str, path: str
 ) -> tuple[R, dict[str, str]] | None:
-    """The enabled route that answers the request, with the parameters it binds.
+    """The enabled route that answers `method path`, with the parameters it binds.
 
-    A route names one host or, with `ANY_HOST`, every host of its project. A
-    route with a query or body condition answers only a request whose query or
-    body equals it exactly (pairs in any order, JSON in any spelling) once the
-    `ignored` fields - values a client changes on every call - are taken out
-    of both. Among the matches the most specific wins: an exact method before
-    `ANY`, a named host before any host, then a literal segment before a
-    parameter, left to right, then the route with more conditions, then the
-    oldest route (and its id, so a tie never depends on the order rows were
-    read). A `HEAD` nothing declares is answered as the `GET` it asks the
-    headers of.
+    Among the matches the most specific wins: an exact method before `ANY`, then
+    a literal segment before a parameter, left to right, then the oldest route
+    (and its id, so a tie never depends on the order rows were read). A `HEAD`
+    nothing declares is answered as the `GET` it asks the headers of.
     """
     candidates = list(routes)
-    request = _Compared(
-        canonical_query(strip_query(query, ignored)),
-        _canonical_body(strip_body(body, ignored)),
-        ignored,
-    )
-    found = _best(candidates, method, host, path, request)
+    found = _best(candidates, method, path)
     if found is None and method == "HEAD":
-        found = _best(candidates, "GET", host, path, request)
+        found = _best(candidates, "GET", path)
     return found
 
 
 def _best[R: RouteCandidate](
-    routes: list[R], method: str, host: str, path: str, request: _Compared
+    routes: list[R], method: str, path: str
 ) -> tuple[R, dict[str, str]] | None:
-    matches: list[
-        tuple[tuple[bool, bool, tuple[int, ...], int, datetime, str], R, dict[str, str]]
-    ] = []
+    matches: list[tuple[tuple[bool, tuple[int, ...], datetime, str], R, dict[str, str]]] = []
     for route in routes:
-        if not _admits(route, method, host):
-            continue
-        conditions = _conditions_met(route, request)
-        if conditions is None:
+        if not route.enabled or route.method not in (method, ANY_METHOD):
             continue
         params = _match_path(route.path, path)
         if params is None:
@@ -223,38 +120,12 @@ def _best[R: RouteCandidate](
         specificity = tuple(
             0 if PARAM_SEGMENT.match(segment) is None else 1 for segment in _segments(route.path)
         )
-        key = (
-            route.method == ANY_METHOD,
-            route.host == ANY_HOST,
-            specificity,
-            -conditions,
-            route.created_at,
-            str(route.id),
-        )
+        key = (route.method == ANY_METHOD, specificity, route.created_at, str(route.id))
         matches.append((key, route, params))
     if not matches:
         return None
     _, route, params = min(matches, key=lambda match: match[0])
     return route, params
-
-
-def _admits(route: RouteCandidate, method: str, host: str) -> bool:
-    """Whether `route` is enabled and declares this request's method and host."""
-    return route.enabled and route.method in (method, ANY_METHOD) and route.host in (host, ANY_HOST)
-
-
-def _conditions_met(route: RouteCandidate, request: _Compared) -> int | None:
-    """How many conditions `route` holds when the canonical request meets them all, else None."""
-    conditions = 0
-    if route.match_query is not None:
-        if canonical_query(strip_query(route.match_query, request.ignored)) != request.query:
-            return None
-        conditions += 1
-    if route.match_body is not None:
-        if _canonical_body(strip_body(route.match_body, request.ignored)) != request.body:
-            return None
-        conditions += 1
-    return conditions
 
 
 def _match_path(pattern: str, path: str) -> dict[str, str] | None:
@@ -277,15 +148,6 @@ def _match_path(pattern: str, path: str) -> dict[str, str] | None:
         elif expected != value:
             return None
     return params
-
-
-def _without(value: object, ignored: Collection[str]) -> object:
-    """A JSON value with every object key named in `ignored` removed, at any depth."""
-    if isinstance(value, dict):
-        return {key: _without(item, ignored) for key, item in value.items() if key not in ignored}
-    if isinstance(value, list):
-        return [_without(item, ignored) for item in value]
-    return value
 
 
 def _segments(path: str) -> list[str]:

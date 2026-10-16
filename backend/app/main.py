@@ -2,7 +2,6 @@
 # Imports
 # ============================================================
 
-import asyncio
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from time import perf_counter
@@ -11,23 +10,16 @@ from uuid import uuid4
 import structlog
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
-import app.core.database as database
-import app.routers.proxy as proxy
-import app.routers.request_log as request_log
 from app.core.database import engine
 from app.core.exceptions import setup_exception_handler
 from app.core.logging import configure_logging
-from app.core.proxy import InterceptingProxy
-from app.core.settings import API_V1_PREFIX, PROXY_HOST, settings
-from app.dependencies.proxy import MockInterceptHandler
-from app.routers import health, project
-from app.services.mock import MockService
+from app.core.settings import API_V1_PREFIX, MOCK_PREFIX, settings
+from app.routers import health, mock, project
 
 
 # ============================================================
@@ -35,6 +27,10 @@ from app.services.mock import MockService
 # ============================================================
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+#: Every path under the mocks. A mock is called cross-origin by design, so the
+#: CSRF origin check would refuse exactly the requests it exists to answer.
+CSRF_EXEMPT_PREFIX = MOCK_PREFIX + "/"
 
 configure_logging(settings.env)
 logger = structlog.get_logger(__name__)
@@ -46,10 +42,11 @@ logger = structlog.get_logger(__name__)
 
 
 class SecurityHeaders(BaseHTTPMiddleware):
-    """The reference's four security headers, as defaults a response may already set.
+    """The reference's four security headers - as defaults, never over a mock's own.
 
-    The mocks are answered by the proxy, not this app, so these reach the
-    admin API and the health probe only.
+    `setdefault`, not assignment: a mock endpoint that declares
+    `X-Frame-Options` is reproducing the API it stands in for, and overwriting
+    it would make the mock answer something the real API does not.
     """
 
     async def dispatch(
@@ -71,7 +68,7 @@ class CsrfProtection(BaseHTTPMiddleware):
     The app has no credentials a browser would attach, but the admin API still
     writes on behalf of whoever can reach it, so a page on another origin must
     not be able to drive it. Origin validation and Fetch Metadata do that
-    without a token.
+    without a token. The mocks are exempt (`CSRF_EXEMPT_PREFIX`).
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -85,7 +82,7 @@ class CsrfProtection(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        if request.method in SAFE_METHODS:
+        if request.method in SAFE_METHODS or request.url.path.startswith(CSRF_EXEMPT_PREFIX):
             return await call_next(request)
 
         origin = request.headers.get("Origin")
@@ -112,38 +109,8 @@ class CsrfProtection(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    """Run the forward proxy beside the API, on its own thread, for the app's lifetime.
-
-    A proxy that cannot listen (the port is taken) is logged and left down: the
-    admin API still serves, and `GET /api/v1/proxy` reports it as not listening.
-    Before it starts, the stored answers nothing refers to any more are swept.
-    """
-    intercepting_proxy: InterceptingProxy | None = None
-    if settings.proxy_enabled:
-        async with AsyncSession(engine, expire_on_commit=False) as session:
-            swept = await MockService(session).delete_orphan_bodies()
-        logger.info("orphan_bodies_swept", count=swept)
-        intercepting_proxy = InterceptingProxy(
-            _proxy_handler,
-            host=PROXY_HOST,
-            port=settings.proxy_port,
-            confdir=settings.proxy_confdir,
-        )
-        await asyncio.to_thread(intercepting_proxy.start)
-        if intercepting_proxy.address is None:
-            logger.error("proxy_not_listening", port=settings.proxy_port)
-    app.state.proxy = intercepting_proxy
     yield
-    if intercepting_proxy is not None:
-        await asyncio.to_thread(intercepting_proxy.stop)
     await engine.dispose()
-
-
-def _proxy_handler() -> MockInterceptHandler:
-    """The proxy's handler, on an engine of its own - called on the proxy's thread and loop."""
-    return MockInterceptHandler(
-        async_sessionmaker(database.create_engine(), class_=AsyncSession, expire_on_commit=False)
-    )
 
 
 # ============================================================
@@ -153,8 +120,7 @@ def _proxy_handler() -> MockInterceptHandler:
 app = FastAPI(
     title=settings.app_name,
     version="1.0.0",
-    description="Mock API server: a forward proxy that records the hosts a project names, "
-    "and answers them from mocked endpoints",
+    description="Mock API server: projects of mocked endpoints, and the log of what they were sent",
     lifespan=_lifespan,
 )
 setup_exception_handler(app)
@@ -193,13 +159,15 @@ async def request_context(
             duration_ms=round((perf_counter() - started) * 1000, 2),
         )
         structlog.contextvars.clear_contextvars()
+    # A mock may declare its own X-Request-ID; it wins, like every mocked header.
     response.headers.setdefault("X-Request-ID", request_id)
     return response
 
 
 # No credentials (there is no authentication and no cookie), so `*` exposes
-# nothing. The admin UI reaches the API through Vite's proxy (same origin);
-# this keeps a tool on another origin able to read it.
+# nothing; `expose_headers` lets a browser client read a mock's own headers.
+# A browser preflight (OPTIONS with Access-Control-Request-Method) is answered
+# here and never reaches an OPTIONS mock endpoint.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -215,8 +183,8 @@ app.add_middleware(
 # ============================================================
 
 app.include_router(health.router)
+app.include_router(mock.router)
+
 api_router = APIRouter(prefix=API_V1_PREFIX)
 api_router.include_router(project.router)
-api_router.include_router(request_log.router)
-api_router.include_router(proxy.router)
 app.include_router(api_router)

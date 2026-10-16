@@ -40,13 +40,3 @@ export const endpointKeys = createQueryKeys('endpoints')
  * not mark it invalid and it is polled while shown.
  */
 export const logKeys = createQueryKeys('request-logs')
-
-/**
- * The fields whose value changed between calls in a project's log - mined from
- * the log, so it is a scope of its own (not a discriminator in `logKeys`): a log
- * clear and a project's `ignored_fields` edit invalidate it, a log refetch does not.
- */
-export const volatileFieldKeys = createQueryKeys('volatile-fields')
-
-/** The forward proxy's status - written by no admin call, so it is polled while shown. */
-export const proxyKeys = createQueryKeys('proxy')

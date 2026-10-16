@@ -7,6 +7,9 @@
  * for a child asked for under another project.
  */
 
+/** The mock router's prefix (`MOCK_PREFIX` in `app/core/settings.py`). */
+const MOCK_PREFIX = '/mock'
+
 export const PROJECT_ENDPOINTS = {
   LIST: '/project/',
   CREATE: '/project/',
@@ -19,9 +22,6 @@ export const ENDPOINT_ENDPOINTS = {
   LIST: (projectId: string) => `/project/${projectId}/endpoints`,
   CREATE: (projectId: string) => `/project/${projectId}/endpoints`,
   DETAIL: (projectId: string, id: string) => `/project/${projectId}/endpoints/${id}`,
-  BODY: (projectId: string, id: string) => `/project/${projectId}/endpoints/${id}/body`,
-  RECORD: (projectId: string, logId: string) => `/project/${projectId}/logs/${logId}/endpoint`,
-  RECORD_MANY: (projectId: string) => `/project/${projectId}/logs/endpoints`,
   UPDATE: (projectId: string, id: string) => `/project/${projectId}/endpoints/${id}`,
   DELETE: (projectId: string, id: string) => `/project/${projectId}/endpoints/${id}`,
 } as const
@@ -29,13 +29,14 @@ export const ENDPOINT_ENDPOINTS = {
 export const LOG_ENDPOINTS = {
   LIST: (projectId: string) => `/project/${projectId}/logs`,
   DETAIL: (projectId: string, id: string) => `/project/${projectId}/logs/${id}`,
-  RESPONSE_BODY: (projectId: string, id: string) => `/project/${projectId}/logs/${id}/response-body`,
   CLEAR: (projectId: string) => `/project/${projectId}/logs`,
-  VOLATILE_FIELDS: (projectId: string) => `/project/${projectId}/logs/volatile-fields`,
 } as const
 
-/** The forward proxy the API runs beside: its status, and the CA a client must trust. */
-export const PROXY_ENDPOINTS = {
-  STATUS: '/proxy/',
-  CA: '/proxy/ca',
+/**
+ * The mock router sits outside `/api/v1`, so these are absolute paths on the
+ * mock origin rather than suffixes of `API_BASE_URL`.
+ */
+export const MOCK_ENDPOINTS = {
+  BASE: (slug: string) => `${MOCK_PREFIX}/${slug}`,
+  SEND: (slug: string, path: string) => `${MOCK_PREFIX}/${slug}${path.startsWith('/') ? path : `/${path}`}`,
 } as const

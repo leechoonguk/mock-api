@@ -10,5 +10,4 @@
 export const PATHS = {
   root: '/',
   project: '/project',
-  proxy: '/proxy',
 } as const

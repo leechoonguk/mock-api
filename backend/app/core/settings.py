@@ -14,9 +14,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 #: retypes it.
 API_V1_PREFIX = "/api/v1"
 
-#: Where the forward proxy listens. Loopback only, like the admin API: the
-#: proxy decrypts the hosts it intercepts, so it is never offered to the network.
-PROXY_HOST = "127.0.0.1"
+#: Where the mocked APIs answer, outside the versioned admin API: a mocked URL
+#: must not change when the admin API is versioned.
+MOCK_PREFIX = "/mock"
 
 #: How many request logs one project keeps. The log is a debugging aid, not an
 #: archive: a client polling a mock in a loop would otherwise grow the table
@@ -30,11 +30,6 @@ MAX_LOG_BODY_BYTES = 65536
 #: The longest delay an endpoint may declare. A mock that sleeps longer holds a
 #: worker and a client connection for no test anyone writes.
 MAX_DELAY_MS = 30000
-
-#: The largest real-server answer a recording keeps whole (in the body store),
-#: so a binary or long answer - an image, a video segment - can be replayed.
-#: Past it the exchange is logged but cannot be saved as an endpoint.
-MAX_STORED_BODY_BYTES = 50 * 1024 * 1024
 
 #: The schemes the engine can drive: the app is SQLite-only (aiosqlite).
 DATABASE_URL_SCHEME = "sqlite+aiosqlite://"
@@ -64,13 +59,6 @@ class Settings(BaseSettings):
     # `*` is safe here: there are no cookies or credentials to leak, and the
     # mocks exist to be called from whatever origin the app under test runs on.
     cors_origins: list[str] = ["*"]
-    # The forward proxy: off in the test suite, which drives the proxy itself.
-    proxy_enabled: bool = True
-    proxy_port: int = 47822
-    # Where mitmproxy keeps its CA - generated on first start, relative to backend/.
-    proxy_confdir: str = "./data/mitmproxy"
-    # Where recorded bodies too large or binary for the log live, relative to backend/.
-    body_store_dir: str = "./data/bodies"
 
     @field_validator("env")
     @classmethod

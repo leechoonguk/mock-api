@@ -11,9 +11,6 @@ import type {
   Endpoint,
   EndpointCreateRequest,
   EndpointListParams,
-  EndpointRecordManyRequest,
-  EndpointRecordManyResponse,
-  EndpointRecordRequest,
   EndpointUpdateRequest,
 } from '@/types/endpoint'
 
@@ -32,13 +29,4 @@ export const endpointService = {
 
   remove: (projectId: string, id: string) =>
     api.delete<OkResponse>(ENDPOINT_ENDPOINTS.DELETE(projectId, id)),
-
-  record: (projectId: string, logId: string, data: EndpointRecordRequest) =>
-    api.post<Endpoint>(ENDPOINT_ENDPOINTS.RECORD(projectId, logId), data),
-
-  recordMany: (projectId: string, data: EndpointRecordManyRequest) =>
-    api.post<EndpointRecordManyResponse>(ENDPOINT_ENDPOINTS.RECORD_MANY(projectId), data),
-
-  /** The bytes the endpoint answers — a link the browser follows, not a read of this app. */
-  bodyUrl: (projectId: string, id: string) => api.url(ENDPOINT_ENDPOINTS.BODY(projectId, id)),
 }

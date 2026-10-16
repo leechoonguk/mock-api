@@ -11,20 +11,15 @@
  * nothing. The template tokens are listed under the body from `TEMPLATE_TOKENS`
  * — code, not locale text, because `{{…}}` inside a translation is i18next's
  * own interpolation syntax and would be eaten by it.
- *
- * An endpoint saved from a recorded binary or large answer answers a stored
- * file (`body_ref`) instead of its body: the editor gives way to that file's
- * download and the switch back to a typed body, and a save leaves `body` out.
  */
 
 import { useState } from 'react'
-import { useFieldArray, useForm, useWatch } from 'react-hook-form'
+import { useFieldArray, useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { yupResolver } from '@hookform/resolvers/yup'
 import * as yup from 'yup'
 import {
   Alert,
-  AlertTitle,
   Box,
   Button,
   Divider,
@@ -41,17 +36,16 @@ import Iconify from '@/components/iconify/Iconify'
 import Label from '@/components/label/Label'
 import { RECORD_SURFACE } from '@/config'
 import { useToast } from '@/hooks/useToast'
-import { toApiError } from '@/lib/api/errors'
-import { applyServerError, serverErrorMessage } from '@/lib/api/formErrors'
-import { useCreateEndpoint, useEndpointBodyUrl, useUpdateEndpoint } from '@/lib/api/hooks/useEndpoint'
-import { PATH_MAX_LENGTH, pathIsValid } from '@/sections/project/endpointPath'
-import { HOST_MAX_LENGTH, hostIsValid, normalizeHost } from '@/sections/project/hostPattern'
+import { applyServerError } from '@/lib/api/formErrors'
+import { useCreateEndpoint, useUpdateEndpoint } from '@/lib/api/hooks/useEndpoint'
 import { METHOD_COLORS } from '@/sections/project/methodColors'
 import { prettyJson } from '@/sections/project/prettyJson'
 import { MOCK_METHODS } from '@/types/endpoint'
 import type { Endpoint, EndpointCreateRequest, MockMethod } from '@/types/endpoint'
 
 /** Bounds mirror `EndpointCreateRequest` on the server. */
+const PATH_MAX_LENGTH = 500
+
 const DESCRIPTION_MAX_LENGTH = 512
 
 const STATUS_MIN = 100
@@ -60,10 +54,8 @@ const STATUS_MAX = 599
 
 const DELAY_MAX_MS = 30000
 
-/** `MATCH_QUERY_MAX_LENGTH` and the body condition's `MAX_LOG_BODY_BYTES` on the server. */
-const MATCH_QUERY_MAX_LENGTH = 2048
-
-const MATCH_BODY_MAX_LENGTH = 65536
+/** A `{name}` parameter segment — `matcher.py`'s own pattern. */
+const PARAM_SEGMENT = /^\{[A-Za-z_][A-Za-z0-9_]*\}$/
 
 /** The tokens `app/engine/templating.py` fills, each with the locale key that explains it. */
 const TEMPLATE_TOKENS = [
@@ -75,9 +67,6 @@ const TEMPLATE_TOKENS = [
   { token: '{{uuid}}', key: 'template.uuid' },
 ] as const
 
-/** How much of a stored file's sha256 names it on screen — enough to tell two apart. */
-const BODY_REF_SHORT_LENGTH = 12
-
 interface HeaderRow {
   name: string
   value: string
@@ -85,8 +74,6 @@ interface HeaderRow {
 
 interface EndpointFormValues {
   method: MockMethod
-  /** Blank answers on every host of the project. */
-  host: string
   path: string
   status_code: number
   delay_ms: number
@@ -94,17 +81,10 @@ interface EndpointFormValues {
   description: string
   headers: HeaderRow[]
   body: string
-  /** A switch per condition: off sends `null` (any query / any body). */
-  match_query_on: boolean
-  /** The query without its `?`. */
-  match_query: string
-  match_body_on: boolean
-  match_body: string
 }
 
 const DEFAULT_VALUES: EndpointFormValues = {
   method: 'GET',
-  host: '',
   path: '/',
   status_code: 200,
   delay_ms: 0,
@@ -112,10 +92,6 @@ const DEFAULT_VALUES: EndpointFormValues = {
   description: '',
   headers: [],
   body: '',
-  match_query_on: false,
-  match_query: '',
-  match_body_on: false,
-  match_body: '',
 }
 
 interface EndpointPanelProps {
@@ -124,6 +100,8 @@ interface EndpointPanelProps {
   endpoint: Endpoint | null
   /** A created endpoint: the dialog turns the panel into that endpoint's own. */
   onCreated: (endpoint: Endpoint) => void
+  /** An existing endpoint can be exercised from its own panel. */
+  onTest: () => void
   onBack: () => void
 }
 
@@ -131,6 +109,7 @@ export default function EndpointPanel({
   projectId,
   endpoint,
   onCreated,
+  onTest,
   onBack,
 }: EndpointPanelProps) {
   const { t } = useTranslation('project')
@@ -141,19 +120,9 @@ export default function EndpointPanel({
   const pending = create.isPending || update.isPending
   // The "format" button's verdict: the body it was asked to indent is no JSON.
   const [formatFailed, setFormatFailed] = useState(false)
-  // A stored file answers instead of the body: no editor, and no body sent.
-  const bodyRef = endpoint?.body_ref ?? null
 
   const schema = yup.object({
     method: yup.mixed<MockMethod>().oneOf(MOCK_METHODS).required(tCommon('validation.required')),
-    host: yup
-      .string()
-      .defined()
-      .max(HOST_MAX_LENGTH, tCommon('validation.max_length', { count: HOST_MAX_LENGTH }))
-      .test('host', t('validation.endpoint_host_invalid'), (value) => {
-        const host = normalizeHost(value)
-        return host === '' || hostIsValid(host, false)
-      }),
     path: yup
       .string()
       .trim()
@@ -183,16 +152,6 @@ export default function EndpointPanel({
       .array(yup.object({ name: yup.string().defined(), value: yup.string().defined() }))
       .required(),
     body: yup.string().defined(),
-    match_query_on: yup.boolean().required(),
-    match_query: yup
-      .string()
-      .defined()
-      .max(MATCH_QUERY_MAX_LENGTH, tCommon('validation.max_length', { count: MATCH_QUERY_MAX_LENGTH })),
-    match_body_on: yup.boolean().required(),
-    match_body: yup
-      .string()
-      .defined()
-      .max(MATCH_BODY_MAX_LENGTH, tCommon('validation.max_length', { count: MATCH_BODY_MAX_LENGTH })),
   })
 
   const methods = useForm<EndpointFormValues>({
@@ -200,10 +159,6 @@ export default function EndpointPanel({
     defaultValues: endpoint === null ? DEFAULT_VALUES : toFormValues(endpoint),
   })
   const headerRows = useFieldArray({ control: methods.control, name: 'headers' })
-  const [matchQueryOn, matchBodyOn] = useWatch({
-    control: methods.control,
-    name: ['match_query_on', 'match_body_on'],
-  })
 
   const formatBody = () => {
     const formatted = prettyJson(methods.getValues('body'))
@@ -212,7 +167,7 @@ export default function EndpointPanel({
   }
 
   const onSubmit = async (values: EndpointFormValues) => {
-    const data = toRequest(values, bodyRef !== null)
+    const data = toRequest(values)
     try {
       if (endpoint === null) {
         const created = await create.mutateAsync(data)
@@ -229,7 +184,7 @@ export default function EndpointPanel({
         t: tCommon,
         setError: methods.setError,
         toastError: toast.error,
-        // The project already answers this method on this host and path.
+        // The project already answers this method on this path.
         fieldByCode: { conflict: 'path' },
       })
     }
@@ -241,16 +196,23 @@ export default function EndpointPanel({
         <PanelStrip
           onBack={onBack}
           actions={
-            <Button size="small" variant="contained" type="submit" disabled={pending}>
-              {tCommon('actions.save')}
-            </Button>
+            <>
+              {endpoint !== null && (
+                <Button size="small" color="inherit" startIcon={<Iconify name="run" />} onClick={onTest}>
+                  {t('test.run')}
+                </Button>
+              )}
+              <Button size="small" variant="contained" type="submit" disabled={pending}>
+                {tCommon('actions.save')}
+              </Button>
+            </>
           }
         >
           {endpoint !== null && (
             <Label color={METHOD_COLORS[endpoint.method]}>{endpoint.method}</Label>
           )}
           <Typography variant="subtitle2" noWrap>
-            {endpoint === null ? t('endpoint.create_title') : `${endpoint.host}${endpoint.path}`}
+            {endpoint === null ? t('endpoint.create_title') : endpoint.path}
           </Typography>
         </PanelStrip>
 
@@ -270,12 +232,6 @@ export default function EndpointPanel({
               </MenuItem>
             ))}
           </RHFTextField>
-          <RHFTextField
-            name="host"
-            label={t('endpoint.host')}
-            placeholder={t('endpoint.host_placeholder')}
-            helperText={t('endpoint.host_helper')}
-          />
           <RHFTextField name="path" label={t('endpoint.path')} helperText={t('endpoint.path_helper')} />
         </Stack>
 
@@ -288,30 +244,6 @@ export default function EndpointPanel({
         </Stack>
 
         <RHFTextField name="description" label={t('endpoint.description')} />
-
-        <Stack spacing={1}>
-          <Typography variant="subtitle2">{t('endpoint.conditions_title')}</Typography>
-          <RHFSwitch name="match_query_on" label={t('endpoint.match_query')} />
-          {matchQueryOn && (
-            <RHFTextField
-              name="match_query"
-              label={t('endpoint.match_query_value')}
-              placeholder="page=1&sort=name"
-              helperText={t('endpoint.match_query_helper')}
-              slotProps={{ htmlInput: { style: { fontFamily: 'monospace' } } }}
-            />
-          )}
-          <RHFSwitch name="match_body_on" label={t('endpoint.match_body')} />
-          {matchBodyOn && (
-            <RHFTextField
-              name="match_body"
-              multiline
-              minRows={3}
-              helperText={t('endpoint.match_body_helper')}
-              slotProps={{ htmlInput: { style: { fontFamily: 'monospace' }, 'aria-label': t('endpoint.match_body') } }}
-            />
-          )}
-        </Stack>
 
         <Stack spacing={1}>
           <Stack direction="row" alignItems="center">
@@ -342,99 +274,41 @@ export default function EndpointPanel({
           ))}
         </Stack>
 
-        {endpoint !== null && bodyRef !== null ? (
-          <StoredBody projectId={projectId} endpointId={endpoint.id} bodyRef={bodyRef} />
-        ) : (
-          <Stack spacing={1}>
-            <Stack direction="row" alignItems="center">
-              <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>
-                {t('endpoint.body')}
-              </Typography>
-              <Button size="small" startIcon={<Iconify name="code" />} onClick={formatBody}>
-                {t('endpoint.format_json')}
-              </Button>
-            </Stack>
-            {/* inline-error-ok: the verdict of the format button, beside the body it judged */}
-            {formatFailed && <Alert severity="warning">{t('endpoint.format_failed')}</Alert>}
-            <RHFTextField
-              name="body"
-              multiline
-              minRows={6}
-              slotProps={{ htmlInput: { style: { fontFamily: 'monospace' }, 'aria-label': t('endpoint.body') } }}
-            />
-            <Stack spacing={0.5}>
-              <Typography variant="caption" color="text.secondary">
-                {t('template.title')}
-              </Typography>
-              {TEMPLATE_TOKENS.map(({ token, key }) => (
-                <Stack key={token} direction="row" spacing={1.5} alignItems="baseline">
-                  <Typography variant="caption" sx={{ fontFamily: 'monospace', flexShrink: 0 }}>
-                    {token}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {t(key)}
-                  </Typography>
-                </Stack>
-              ))}
-            </Stack>
-          </Stack>
-        )}
-      </Stack>
-    </FormProvider>
-  )
-}
-
-interface StoredBodyProps {
-  projectId: string
-  endpointId: string
-  bodyRef: string
-}
-
-/** The stored file an endpoint answers: which one, its download, and the way back to a typed body. */
-function StoredBody({ projectId, endpointId, bodyRef }: StoredBodyProps) {
-  const { t } = useTranslation('project')
-  const { t: tCommon } = useTranslation('common')
-  const toast = useToast()
-  const update = useUpdateEndpoint(projectId)
-  const bodyUrl = useEndpointBodyUrl(projectId, endpointId)
-
-  const toText = async () => {
-    try {
-      // The refreshed endpoint has no `body_ref`, so the panel shows the (empty) editor.
-      await update.mutateAsync({ id: endpointId, data: { body_ref: null } })
-      toast.success(t('endpoint.stored_cleared'))
-    } catch (error) {
-      toast.error(serverErrorMessage(toApiError(error).code, tCommon))
-    }
-  }
-
-  return (
-    <Stack spacing={1}>
-      <Typography variant="subtitle2">{t('endpoint.body')}</Typography>
-      <Alert severity="info">
-        <AlertTitle>{t('endpoint.stored_title')}</AlertTitle>
         <Stack spacing={1}>
-          <Typography variant="body2">{t('endpoint.stored_description')}</Typography>
-          <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
-            {t('endpoint.stored_ref', { ref: bodyRef.slice(0, BODY_REF_SHORT_LENGTH) })}
-          </Typography>
-          <Stack direction="row" spacing={1}>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<Iconify name="download" />}
-              href={bodyUrl}
-              download
-            >
-              {t('endpoint.stored_download')}
+          <Stack direction="row" alignItems="center">
+            <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>
+              {t('endpoint.body')}
+            </Typography>
+            <Button size="small" startIcon={<Iconify name="code" />} onClick={formatBody}>
+              {t('endpoint.format_json')}
             </Button>
-            <Button size="small" disabled={update.isPending} onClick={() => void toText()}>
-              {t('endpoint.stored_to_text')}
-            </Button>
+          </Stack>
+          {/* inline-error-ok: the verdict of the format button, beside the body it judged */}
+          {formatFailed && <Alert severity="warning">{t('endpoint.format_failed')}</Alert>}
+          <RHFTextField
+            name="body"
+            multiline
+            minRows={6}
+            slotProps={{ htmlInput: { style: { fontFamily: 'monospace' }, 'aria-label': t('endpoint.body') } }}
+          />
+          <Stack spacing={0.5}>
+            <Typography variant="caption" color="text.secondary">
+              {t('template.title')}
+            </Typography>
+            {TEMPLATE_TOKENS.map(({ token, key }) => (
+              <Stack key={token} direction="row" spacing={1.5} alignItems="baseline">
+                <Typography variant="caption" sx={{ fontFamily: 'monospace', flexShrink: 0 }}>
+                  {token}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {t(key)}
+                </Typography>
+              </Stack>
+            ))}
           </Stack>
         </Stack>
-      </Alert>
-    </Stack>
+      </Stack>
+    </FormProvider>
   )
 }
 
@@ -442,7 +316,6 @@ function StoredBody({ projectId, endpointId, bodyRef }: StoredBodyProps) {
 function toFormValues(endpoint: Endpoint): EndpointFormValues {
   return {
     method: endpoint.method,
-    host: endpoint.host,
     path: endpoint.path,
     status_code: endpoint.status_code,
     delay_ms: endpoint.delay_ms,
@@ -450,19 +323,11 @@ function toFormValues(endpoint: Endpoint): EndpointFormValues {
     description: endpoint.description,
     headers: Object.entries(endpoint.headers).map(([name, value]) => ({ name, value })),
     body: endpoint.body,
-    match_query_on: endpoint.match_query !== null,
-    match_query: endpoint.match_query ?? '',
-    match_body_on: endpoint.match_body !== null,
-    match_body: endpoint.match_body ?? '',
   }
 }
 
-/**
- * The form as the request: nameless header rows dropped, the rest keyed by name.
- * A condition switched off is `null`, which an update reads as "clear it". An
- * endpoint answering a stored file sends no body: its `body` is `""` by rule.
- */
-function toRequest(values: EndpointFormValues, stored: boolean): Omit<EndpointCreateRequest, 'body_ref'> {
+/** The form as the request: nameless header rows dropped, the rest keyed by name. */
+function toRequest(values: EndpointFormValues): EndpointCreateRequest {
   const headers: Record<string, string> = {}
   for (const row of values.headers) {
     const name = row.name.trim()
@@ -470,15 +335,27 @@ function toRequest(values: EndpointFormValues, stored: boolean): Omit<EndpointCr
   }
   return {
     method: values.method,
-    host: normalizeHost(values.host),
     path: values.path.trim(),
     status_code: values.status_code,
     delay_ms: values.delay_ms,
     enabled: values.enabled,
     description: values.description,
     headers,
-    ...(stored ? {} : { body: values.body }),
-    match_query: values.match_query_on ? values.match_query.trim().replace(/^\?/, '') : null,
-    match_body: values.match_body_on ? values.match_body : null,
+    body: values.body,
   }
+}
+
+/**
+ * `pattern_problem` in `app/engine/matcher.py`, judged before the request: a
+ * braced segment must be exactly `{name}`, and no name may appear twice.
+ */
+function pathIsValid(path: string): boolean {
+  const names = new Set<string>()
+  for (const segment of path.split('/')) {
+    if (!segment.includes('{') && !segment.includes('}')) continue
+    if (!PARAM_SEGMENT.test(segment)) return false
+    if (names.has(segment)) return false
+    names.add(segment)
+  }
+  return true
 }

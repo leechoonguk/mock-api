@@ -1,11 +1,11 @@
 /**
- * Project list — each project and the hosts it intercepts.
+ * Project list — the namespaces mocked endpoints live under.
  *
  * The operations pattern: a project row is configuration, its detail dialog
- * holds the endpoints (what it answers) and the request log that says what was
- * called. The name is edited in the row; the hosts are a list a cell cannot
- * hold, so creating needs the form dialog. A row click opens the detail dialog
- * at `?detail=<id>`.
+ * holds the endpoints (what it answers), the test panel that exercises one, and
+ * the request log that says what was called. The name is edited in the row; the
+ * slug is fixed at creation (it is the mocked URL), so creating needs the form
+ * dialog. A row click opens the detail dialog at `?detail=<id>`.
  */
 
 import { useCallback, useMemo } from 'react'
@@ -38,17 +38,17 @@ import type { Project, ProjectListParams } from '@/types/project'
 
 /**
  * Every column has a **floor** and a **share**. The name is the row's identity
- * and takes the largest share; the hosts are a short list, the count a number.
+ * and takes the largest share; the slug is a short word, the count a number.
  */
 const COLUMN: Record<string, { floor: number; share: number; priority: number }> = {
   name: { floor: 200, share: 1.2, priority: 0 },
-  hosts: { floor: 200, share: 1, priority: 1 },
+  slug: { floor: 160, share: 0.8, priority: 1 },
   endpoint_count: { floor: 140, share: 0.4, priority: 2 },
   created_at: { floor: TIMESTAMP_COLUMN_FLOOR, share: 0.6, priority: 3 },
 }
 
 /** What the header may sort - the router's `ProjectSortQuery`; the URL's `sort` is held to it. */
-const SORTABLE = ['name', 'created_at']
+const SORTABLE = ['name', 'slug', 'created_at']
 
 /** The grid props a column's floor and share become. */
 const sized = (field: keyof typeof COLUMN) => ({
@@ -69,8 +69,8 @@ type FilterField = (typeof FILTER_FIELDS)[number]
 /** The free-text column a row edits. */
 type EditableField = 'name'
 
-/** The phone's card: the project's name, then its hosts and how many endpoints it holds. */
-const CARD = { title: 'name', fields: ['hosts', 'endpoint_count'] }
+/** The phone's card: the project's name, then its slug and how many endpoints it holds. */
+const CARD = { title: 'name', fields: ['slug', 'endpoint_count'] }
 
 /** No page yet - one array, so the memoised grid is not handed a new one per render. */
 const EMPTY_ROWS: Project[] = []
@@ -125,12 +125,7 @@ export default function ProjectList() {
           error: nameProblem(String(cell.props.value ?? '')) !== null,
         }),
       },
-      {
-        ...sized('hosts'),
-        headerName: t('table.hosts'),
-        sortable: false,
-        valueFormatter: (value: string[]) => value.join(', '),
-      },
+      { ...sized('slug'), headerName: t('table.slug') },
       {
         ...sized('endpoint_count'),
         headerName: t('table.endpoint_count'),

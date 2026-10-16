@@ -9,7 +9,7 @@
  * panel for one boolean is a detour.
  */
 
-import { Stack, Switch, TableCell } from '@mui/material'
+import { Switch, TableCell } from '@mui/material'
 import { useTranslation } from 'react-i18next'
 import ClippedText from '@/components/clipped-text/ClippedText'
 import Label from '@/components/label/Label'
@@ -25,6 +25,7 @@ interface ProjectEndpointsTabProps {
   pendingId: string | null
   onCreate: () => void
   onSelect: (endpoint: Endpoint) => void
+  onTest: (endpoint: Endpoint) => void
   onDelete: (endpoint: Endpoint) => void
   onToggle: (endpoint: Endpoint, enabled: boolean) => void
 }
@@ -34,6 +35,7 @@ export default function ProjectEndpointsTab({
   pendingId,
   onCreate,
   onSelect,
+  onTest,
   onDelete,
   onToggle,
 }: ProjectEndpointsTabProps) {
@@ -63,16 +65,8 @@ export default function ProjectEndpointsTab({
           <TableCell>
             <Label color={METHOD_COLORS[endpoint.method]}>{endpoint.method}</Label>
           </TableCell>
-          {/* Two rows may share method and path under different hosts or conditions: a
-              named host is printed before the path (none - "every host" - adds nothing to
-              read), a query after it, and a body condition is a badge. */}
           <TableCell>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
-              <ClippedText
-                text={`${endpoint.host}${endpoint.path}${endpoint.match_query ? `?${endpoint.match_query}` : ''}`}
-              />
-              {endpoint.match_body !== null && <Label color="info">{t('endpoint.body_condition')}</Label>}
-            </Stack>
+            <ClippedText text={endpoint.path} />
           </TableCell>
           <TableCell align="right">
             <ClippedText text={String(endpoint.status_code)} />
@@ -97,6 +91,7 @@ export default function ProjectEndpointsTab({
         </>
       )}
       actions={(endpoint) => [
+        { label: t('test.run'), icon: 'run', onClick: () => onTest(endpoint) },
         { label: tCommon('actions.edit'), icon: 'edit', onClick: () => onSelect(endpoint) },
         {
           label: tCommon('actions.delete'),

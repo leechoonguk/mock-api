@@ -16,12 +16,6 @@ dependencies = [
     "greenlet>=3.1",
     "alembic>=1.16",
     "structlog>=25",
-    # The transport starlette's TestClient drives requests through, and the
-    # client the proxy tests send through the proxy with.
-    "httpx2>=2.12",
-    # The forward proxy: CONNECT, per-host certificates from a local CA, and the
-    # flows the record and mock modes read and answer.
-    "mitmproxy>=12.2",
 ]
 
 [dependency-groups]
@@ -31,6 +25,8 @@ dev = [
     "pytest-cov>=6",
     "pytest-xdist>=3.6",
     "pytest-env>=1.1",
+    # The transport starlette's TestClient drives requests through.
+    "httpx2>=2.12",
     "ruff>=0.12",
     # Pinned: a type checker that moves is a gate that disagrees with itself.
     "pyright==1.1.414",
@@ -91,8 +87,6 @@ env = [
     "ALLOWED_HOSTS=[\"localhost\", \"127.0.0.1\", \"testserver\"]",
     "CSRF_TRUSTED_ORIGINS=[\"http://localhost:47823\"]",
     "ITEMS_PER_USER=20",
-    # The app's own proxy stays down: the proxy tests start theirs on a free port.
-    "PROXY_ENABLED=false",
 ]
 
 [tool.coverage.run]

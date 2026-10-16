@@ -10,6 +10,16 @@ export const API_BASE_URL = '/api/v1'
 
 export const API_TIMEOUT_MS = 30_000
 
+/**
+ * Where the mock server answers, for the base URL a project shows and the
+ * test panel's requests.
+ *
+ * The dev proxy forwards the mock router's prefix to the backend, so the page's
+ * own origin works by default; `VITE_MOCK_ORIGIN` points the copied URL straight
+ * at the backend so a `curl` pasted from the screen does not depend on Vite.
+ */
+export const MOCK_ORIGIN: string = import.meta.env.VITE_MOCK_ORIGIN ?? window.location.origin
+
 export const APP_NAME = 'Mock API'
 
 export const DEFAULT_PAGE_SIZE = 20
