@@ -1,0 +1,9 @@
+id: repository-access
+language: python
+# Reaching another service's repository skips its business rules — ownership,
+# conflict checks, audit columns — while looking like a read. The service method
+# is the only entry that carries them.
+rule:
+  kind: call
+  regex: "\\w+_service\\.\\w+_repository\\."
+message: "repository access is forbidden outside the owning service — call the service method instead (e.g. item_service.find_stale(...)); repositories are private to their service"

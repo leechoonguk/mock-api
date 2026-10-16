@@ -1,0 +1,9 @@
+id: service-var-name
+language: python
+# With two injected services, a bare `service` no longer says which one. The
+# domain prefix keeps a call readable at the point of use instead of at the
+# declaration.
+rule:
+  kind: function_definition
+  regex: "\\bservice\\s*[:=]"
+message: "service variables/params must be domain-prefixed (item_service, user_service) — a bare `service` can't distinguish multiple injected services"

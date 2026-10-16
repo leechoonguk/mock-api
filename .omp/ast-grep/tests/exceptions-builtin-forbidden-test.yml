@@ -1,0 +1,23 @@
+id: exceptions-builtin-forbidden
+valid:
+  - |
+    async def get_batch(self, batch_schedule_id: UUID) -> Batch:
+        raise NotFoundError(batch_schedule_id)
+  - |
+    class Settings(BaseSettings):
+        @field_validator("env")
+        @classmethod
+        def validate_env(cls, value: str) -> str:
+            if value not in {"local", "production", "test"}:
+                raise ValueError("env must be local|production|test")
+            return value
+invalid:
+  - |
+    async def dispatch(request: Request) -> Response:
+        raise RuntimeError("request middleware did not receive a response")
+  - |
+    def _coerce(value: object) -> int:
+        raise ValueError("Boolean is not an integer")
+  - |
+    def broken() -> None:
+        raise Exception("boom")

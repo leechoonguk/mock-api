@@ -1,0 +1,12 @@
+id: transaction-service-only
+language: python
+# The transaction boundary belongs to the layer that owns the business
+# operation. A router or repository that opens one either commits half an
+# operation or holds a transaction open across a call it does not control.
+rule:
+  kind: with_statement
+  # Matches `session.begin()`, `self.session.begin()`, and any aliased holder
+  # (`svc.session.begin()`, `service.session.begin()`): the transaction boundary
+  # belongs to the service that owns the session, wherever it is reached from.
+  regex: "async with [A-Za-z_][A-Za-z0-9_]*\\.?(session\\.)?begin\\(\\):|async with session\\.begin\\(\\):"
+message: "session.begin() must only be used in service classes — never in routers/repositories/dependencies"

@@ -1,0 +1,8 @@
+id: frontend-api-inline-axios
+valid:
+  - |
+    import { api } from '@/lib/api/client'
+    export const userService = { list: () => api.get('/user/') }
+invalid:
+  - |
+    const client = axios.create({ baseURL: '/api/v1' })

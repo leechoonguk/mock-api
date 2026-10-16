@@ -1,0 +1,17 @@
+id: exceptions-instance-raise
+language: python
+# `raise credentials_exception` hides which exception is raised: the reader must
+# find the assignment, and a static rule cannot tell whether the class is a core
+# exception at all. The class is named at the raise site, always.
+#
+# `$NAME` matches one node, so the constraint excludes calls (they carry parens)
+# and class names (they are capitalised) — what remains is a stored instance.
+# Both raise forms are listed because `raise x from None` is a different node.
+rule:
+  any:
+    - pattern: raise $NAME
+    - pattern: raise $NAME from $CAUSE
+constraints:
+  NAME:
+    regex: "^[a-z_][a-z0-9_]*$"
+message: "raise the exception class at the raise site (raise AuthenticationError()) — a stored instance hides which exception this is"

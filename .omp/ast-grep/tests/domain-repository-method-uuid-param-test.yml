@@ -1,0 +1,22 @@
+id: repository-method-uuid-param
+valid:
+  - |
+    async def get(self, batch_schedule_id: UUID) -> Batch | None:
+        return None
+  # A signature the formatter wrapped is still a UUID id: the rule owns the
+  # type, not the line width. Before the whitespace classes this case failed,
+  # and a domain was renamed to keep its signature under 100 columns.
+  - |
+    async def update(
+        self, checkpoint_id: UUID, data: CheckpointUpdateInternal
+    ) -> Checkpoint | None:
+        return None
+invalid:
+  - |
+    async def get(self, batch_schedule_id: str) -> Batch | None:
+        return None
+  - |
+    async def update(
+        self, checkpoint_id: str, data: CheckpointUpdateInternal
+    ) -> Checkpoint | None:
+        return None

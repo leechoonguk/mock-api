@@ -1,0 +1,12 @@
+id: inner-function-underscore
+language: python
+# A nested function is not part of the module's surface. The underscore says so
+# at the definition, so a reader looking for the public entry point does not
+# have to work out which `def` is reachable from outside.
+rule:
+  kind: function_definition
+  regex: "^(async )?def [^_]"
+  inside:
+    kind: function_definition
+    stopBy: end
+message: "inner function must be prefixed with _ (e.g. _not_found_handler)"

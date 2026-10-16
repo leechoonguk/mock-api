@@ -1,0 +1,13 @@
+id: env-os-environ-direct
+language: python
+# Direct env access bypasses validation and defaults: a typo yields `None` at the
+# first use instead of a startup failure, and the variable never appears in the
+# settings model that documents the contract.
+rule:
+  any:
+    - pattern: os.environ[$KEY]
+    - pattern: os.getenv($KEY)
+owns:
+  - "os.environ"
+  - "os.getenv"
+message: "hardcoded env access — use settings.py (settings.<field>) instead of os.environ/os.getenv"

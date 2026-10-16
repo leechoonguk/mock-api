@@ -1,0 +1,98 @@
+{
+  // ==========================================
+  // 1. 파이썬 (Backend) 및 테스트 설정
+  // ==========================================
+  // 프로젝트 내 backend 폴더의 가상환경(.venv)에 있는 파이썬을 기본 인터프리터로 지정합니다.
+  "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/bin/python",
+  // 파이썬 테스트 프레임워크로 pytest를 활성화합니다.
+  "python.testing.pytestEnabled": true,
+  // 테스트가 실행될 현재 작업 디렉토리(CWD)를 backend 폴더로 지정합니다.
+  "python.testing.cwd": "${workspaceFolder}/backend",
+  // ==========================================
+  // 2. Pyright / Pylance 언어 서버 설정
+  // ==========================================
+  // 파이썬 타입 검사 수준을 'standard'(표준)로 설정하여 정적 타입 오류를 감지합니다.
+  "python.analysis.typeCheckingMode": "standard",
+  // 진단(에러/경고) 범위를 현재 열린 파일뿐만 아니라 'workspace'(전체 작업 공간)로 확장합니다.
+  "python.analysis.diagnosticMode": "workspace",
+  // 모듈의 소스 코드를 자동으로 찾을 수 있도록 검색 경로를 자동 최적화합니다.
+  "python.analysis.autoSearchPaths": true,
+  // ==========================================
+  // 3. Ruff (린터 및 포맷터) 및 글로벌 포맷팅 설정
+  // ==========================================
+  // Ruff 실행 파일을 글로벌 설치본 대신 현재 개발 환경(가상환경 등)에 설치된 버전을 우선 사용합니다.
+  "ruff.importStrategy": "fromEnvironment",
+  // 에디터의 기본 코드 포맷터(정렬 도구)를 Ruff 확장 프로그램으로 지정합니다.
+  "editor.defaultFormatter": "charliermarsh.ruff",
+  // 파일을 저장할 때마다 자동으로 코드를 정렬(포맷팅)합니다.
+  "editor.formatOnSave": true,
+  // 파일 저장 시 자동으로 실행할 추가 액션들을 정의합니다.
+  "editor.codeActionsOnSave": {
+    // Ruff가 잡아낸 규칙 위반 사항과 에러들을 자동으로 수정합니다.
+    "source.fixAll.ruff": "always",
+    // Ruff를 사용해 사용하지 않는 import를 제거하고 알파벳 순으로 정렬합니다.
+    "source.organizeImports.ruff": "always"
+  },
+  // ==========================================
+  // 4. 프론트엔드 (TypeScript & ESLint) 설정
+  // ==========================================
+  // VS Code 내장 버전 대신 프로젝트(frontend 폴더) 내의 TypeScript 버전을 연동합니다.
+  "js/ts.tsdk.path": "${workspaceFolder}/frontend/node_modules/typescript/lib",
+  // 프로젝트에 설정된 워크스페이스 버전의 TypeScript를 사용할지 묻는 프롬프트를 띄웁니다.
+  "js/ts.tsdk.promptToUseWorkspaceVersion": true,
+  // ESLint가 린팅을 수행할 기준 디렉토리를 frontend 폴더로 한정합니다.
+  "eslint.workingDirectories": [
+    {
+      "pattern": "frontend"
+    }
+  ],
+  // ==========================================
+  // 5. Vite 성능 최적화 및 에디터 환경 설정
+  // ==========================================
+  // Vite의 불필요한 빌드 결과물(dist) 및 모듈 폴더는 파일 감시 대상에서 제외하여 CPU 소모를 줄입니다.
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/dist/**": true,
+    "**/.vite/**": true
+  },
+  // ==========================================
+  // 6. 언어별 포맷터 예외 처리 분기 (Ruff 미지원 파일)
+  // ==========================================
+  // 파이썬 외에 HTML, CSS, JSON 등은 각 언어에 맞는 최적의 포맷터로 개별 지정합니다.
+  "[html]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[css]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  // ==========================================
+  // 7. YAML — docker compose 병합 태그
+  // ==========================================
+  // compose 오버레이는 `!override`(속성 통째 교체)와 `!reset`(속성 제거)로 병합
+  // 규칙을 무시합니다. compose 자체는 이를 해석하고(`make qa-config` 통과) YAML
+  // 언어 서버만 모르는 태그라 "Unresolved tag" 를 냅니다. 스펙 스키마의 오탐이지
+  // 파일의 오류가 아니므로, 서버에 두 태그를 알려 줍니다.
+  "yaml.customTags": [
+    "!override sequence",
+    "!override mapping",
+    "!override scalar",
+    "!reset sequence",
+    "!reset mapping",
+    "!reset scalar"
+  ]
+}

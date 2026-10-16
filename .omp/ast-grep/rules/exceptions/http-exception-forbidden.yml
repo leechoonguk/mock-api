@@ -1,0 +1,14 @@
+id: exceptions-http-exception-forbidden
+language: python
+# HTTPException puts a status code at the raise site, so the same failure answers
+# differently depending on which layer noticed it. Status codes belong to
+# setup_exception_handler, which maps one core exception to one response shape
+# (detail / code / request_id). Constructing the instance is forbidden too: a
+# stored HTTPException is raised later, past this rule's reach.
+rule:
+  any:
+    - pattern: raise HTTPException($$$ARGS)
+    - pattern: $VAR = HTTPException($$$ARGS)
+owns:
+  - "HTTPException"
+message: "HTTPException is forbidden in app code — raise a core exception (app/core/exceptions.py) and let setup_exception_handler map it to a status"

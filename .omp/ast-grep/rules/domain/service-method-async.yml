@@ -1,0 +1,24 @@
+id: service-method-async
+language: python
+# A sync function that touches the session blocks the event loop for every
+# request in the process, not just its own. In these layers that is any method
+# (a method holds the session by construction) and any module-level function
+# that names a session, a repository or an HTTP client.
+#
+# Scoped by **what it touches**, not by where it sits. Two earlier shapes were
+# both wrong: matching only `^def` also caught pure module helpers — which is
+# how a record mapper and a timestamp normaliser were pushed out of the layer
+# into `schemas/` — and restricting to methods let a sync module function do
+# blocking I/O beside them. `async` on a pure helper buys nothing; blocking work
+# that is already async is owned by `offload/password-hash.yml`.
+rule:
+  kind: function_definition
+  regex: "^def \\w+\\("
+  any:
+    - inside:
+        kind: class_definition
+        stopBy: end
+    - regex: "\\bsession\\b|_repository\\b|\\bclient\\b"
+  not:
+    regex: "^def __\\w+__\\("
+message: "must be async: a method in this layer, or a module function touching session/repository/client (only dunder methods may be sync)"

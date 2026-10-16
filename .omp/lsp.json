@@ -1,0 +1,23 @@
+{
+  "idleTimeoutMs": 300000,
+  "servers": {
+    "pyright": {
+      "command": "backend/.venv/bin/pyright-langserver",
+      "rootMarkers": ["backend/pyproject.toml"]
+    },
+    "ruff": {
+      "command": "backend/.venv/bin/ruff",
+      "rootMarkers": ["backend/pyproject.toml"]
+    },
+    "typescript-language-server": {
+      "command": "frontend/node_modules/.bin/typescript-language-server",
+      "rootMarkers": ["frontend/package.json"]
+    },
+    "vscode-json-language-server": {
+      "command": "frontend/node_modules/.bin/vscode-json-language-server",
+      "args": ["--stdio"],
+      "fileTypes": [".json", ".jsonc"],
+      "rootMarkers": ["frontend/package.json"]
+    }
+  }
+}

@@ -1,0 +1,17 @@
+id: service-transaction-write-only
+language: python
+# A read inside `session.begin()` opens a write transaction for nothing: it takes
+# locks, holds a connection, and turns a concurrent read into a wait. The
+# boundary belongs to the three methods that actually change rows.
+#
+# The optional `_` is load-bearing: without it the rule also forbade marking
+# such a method private, so a write helper nobody outside the class calls had
+# to stay public to satisfy a rule about transactions. Measured on
+# `_create_call_log`. This rule owns where a transaction may open, not who may
+# call the method.
+rule:
+  kind: function_definition
+  regex: "async with self\\.session\\.begin\\(\\):"
+  not:
+    regex: "async def _?(create|update|delete)_"
+message: "session.begin() must only be used in create/update/delete service methods — never in read methods (get/list/find_stale)"

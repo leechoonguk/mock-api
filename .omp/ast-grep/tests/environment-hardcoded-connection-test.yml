@@ -1,0 +1,7 @@
+id: env-hardcoded-connection
+valid:
+  - |
+    engine = create_async_engine(settings.database_url)
+invalid:
+  - |
+    engine = create_async_engine("postgresql+asyncpg://app:app@localhost:5432/app")

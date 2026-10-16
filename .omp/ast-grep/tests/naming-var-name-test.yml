@@ -1,0 +1,9 @@
+id: service-var-name
+valid:
+  - |
+    async def list_batches(batch_service: BatchServiceDep) -> list[BatchReadResponse]:
+        return []
+invalid:
+  - |
+    async def list_batches(service: BatchServiceDep) -> list[BatchReadResponse]:
+        return []

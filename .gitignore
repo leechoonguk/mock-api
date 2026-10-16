@@ -1,0 +1,22 @@
+# Local environment (do not commit)
+.env
+api/.env
+
+# Runtime harness state: per-session extension state and the post-hook crash log
+.omp/state/
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Backend runtime data (SQLite database file)
+backend/data/
+
+# Frontend
+node_modules/
+dist/
+.vite/

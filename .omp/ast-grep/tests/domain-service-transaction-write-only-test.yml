@@ -1,0 +1,21 @@
+id: service-transaction-write-only
+valid:
+  - |
+    async def create_batch(self, data: BatchCreateRequest) -> Batch:
+        async with self.session.begin():
+            return await self.batch_repository.create(data)
+  # A private write helper is still a write: the underscore says who may call
+  # it, not whether it may hold a transaction.
+  - |
+    async def _create_call_log(self, client: IntegrationClient) -> None:
+        async with self.session.begin():
+            await self.call_repository.create(client.last_exchange)
+invalid:
+  - |
+    async def get_batch(self, batch_schedule_id: UUID) -> Batch:
+        async with self.session.begin():
+            return await self.batch_repository.get(batch_schedule_id)
+  - |
+    async def _find_batch(self, batch_schedule_id: UUID) -> Batch:
+        async with self.session.begin():
+            return await self.batch_repository.get(batch_schedule_id)

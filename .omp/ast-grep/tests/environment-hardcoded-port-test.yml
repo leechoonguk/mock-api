@@ -1,0 +1,7 @@
+id: env-hardcoded-port
+valid:
+  - |
+    client = Redis.from_url(settings.redis_url)
+invalid:
+  - |
+    client = Redis.from_url("redis://localhost:6379/0")

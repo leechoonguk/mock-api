@@ -1,0 +1,15 @@
+id: exceptions-instance-raise
+valid:
+  - |
+    async def authenticate(self, username: str, password: str) -> User:
+        raise AuthenticationError()
+  - |
+    async def get_batch(self, batch_schedule_id: UUID) -> Batch:
+        raise NotFoundError(batch_schedule_id) from None
+invalid:
+  - |
+    async def get_current_user(token: str) -> User:
+        raise credentials_exception
+  - |
+    async def get_current_user(token: str) -> User:
+        raise credentials_exception from None

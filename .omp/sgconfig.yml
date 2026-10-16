@@ -1,0 +1,15 @@
+# ast-grep root config — makes the rule set testable.
+#
+# The whole structural rule set lives under one parent, in ast-grep's own
+# documented project layout: rules and the cases proving them are siblings.
+# They cannot share a directory — ruleDirs parses every .yml it finds, and a
+# test case has no `language:`/`rule:` key, so colocation fails the scan.
+#
+# ruleDirs     : the rules the post hooks run (.omp/ast-grep/rules/<scope>/*.yml)
+# testConfigs  : valid/invalid cases proving each rule fires on the violation
+#                and stays silent on compliant code (make check-ast-rules)
+ruleDirs:
+  - ast-grep/rules
+
+testConfigs:
+  - testDir: ast-grep/tests

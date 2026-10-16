@@ -1,0 +1,9 @@
+id: repository-access
+valid:
+  - |
+    async def cleanup() -> int:
+        return await batch_service.find_stale(cutoff)
+invalid:
+  - |
+    async def cleanup() -> int:
+        return await batch_service.batch_repository.find_stale(cutoff)

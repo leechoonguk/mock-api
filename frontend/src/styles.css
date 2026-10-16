@@ -1,0 +1,17 @@
+/*
+ * Document reset only. Everything else is the MUI theme.
+ *
+ * This file used to carry the stub app's layout — `max-width: 40rem` on `:root`
+ * — which silently clamped the whole document to 640px and squeezed the app
+ * shell into a strip no matter what the layout asked for. A stylesheet that
+ * lays out pages competes with the theme; this one only makes the root fill the
+ * viewport so a `100vh` column means what it says.
+ */
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}

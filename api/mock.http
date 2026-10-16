@@ -1,0 +1,71 @@
+### Mock API — /mock/{slug}/{path} 매칭·템플릿·지연·로그 (버전 프리픽스 밖, 아무 메서드)
+### 전제: backend 서버 실행 중 (make dev)
+### 순차 실행: 1번이 프로젝트를, 2~3번이 엔드포인트를 만들고 마지막 블록이 프로젝트를 지운다
+###           (엔드포인트와 로그는 CASCADE). 실행이 끝나면 DB는 실행 전과 같다.
+@base = {{$dotenv API_ORIGIN}}/api/v1
+# 목 경로는 버전 프리픽스 밖이다. 요청 라인에는 {{$dotenv ...}}를 쓸 수 없어서 origin을 따로 둔다
+@origin = {{$dotenv API_ORIGIN}}
+@projectId = {{createProject.response.body.id}}
+# 목 URL의 프로젝트 부분
+@slug = {{createProject.response.body.slug}}
+
+### 1. Project 생성 — 201
+# @name createProject
+POST {{base}}/project/
+Content-Type: application/json
+
+{
+  "name": "Mock {{$guid}}",
+  "slug": "mock-{{$guid}}"
+}
+
+### 2. Endpoint 생성 — 201 (GET /users/{id} — 201 + X-Mock 헤더, 바디가 path·query·header를 되돌려준다)
+# 바디의 {{path.id}} 등은 REST Client 변수가 아니므로 그대로 전송되고, 서버가 목 응답에서 치환한다
+POST {{base}}/project/{{projectId}}/endpoints
+Content-Type: application/json
+
+{
+  "method": "GET",
+  "path": "/users/{id}",
+  "status_code": 201,
+  "headers": {"X-Mock": "1"},
+  "body": "{\"id\": \"{{path.id}}\", \"page\": \"{{query.page}}\", \"user\": \"{{headers.x-user}}\"}"
+}
+
+### 3. Endpoint 생성 — 201 (ANY /echo — 요청 바디의 a.b를 되돌려주고 200ms 늦게 답한다)
+POST {{base}}/project/{{projectId}}/endpoints
+Content-Type: application/json
+
+{
+  "method": "ANY",
+  "path": "/echo",
+  "body": "{{body.a.b}}",
+  "delay_ms": 200
+}
+
+### 4. 목 호출 — 201 (x-mock: 1, content-type: application/json, {"id": "42", "page": "2", "user": "kim"})
+GET {{origin}}/mock/{{slug}}/users/42?page=2
+X-User: kim
+
+### 5. 목 호출 — 200 (ANY가 POST를 받는다, 200ms 이상 걸린다, 바디 "hello"는 text/plain)
+POST {{origin}}/mock/{{slug}}/echo
+Content-Type: application/json
+
+{
+  "a": {"b": "hello"}
+}
+
+### 6. 목 호출 — 200 (HEAD는 HEAD 엔드포인트가 없으면 GET으로 매칭되고 바디는 비어 있다)
+HEAD {{origin}}/mock/{{slug}}/users/7
+
+### 7. 목 호출 — 404 (매칭 없음 — code: mock_not_matched, 로그에는 matched=false로 남는다)
+GET {{origin}}/mock/{{slug}}/nope
+
+### 8. 목 호출 — 404 (없는 slug — code: not_found, 로그를 남기지 않는다)
+GET {{origin}}/mock/no-such-project-{{$guid}}/users/1
+
+### 9. Request log 목록 — 200 (4~7번 네 건, 최신순 — 7번은 matched=false)
+GET {{base}}/project/{{projectId}}/logs?offset=0&limit=20
+
+### 10. Project 삭제 — 200 ({"ok": true} — 엔드포인트와 로그는 CASCADE)
+DELETE {{base}}/project/{{projectId}}

@@ -1,0 +1,14 @@
+id: transaction-service-only
+valid:
+  - |
+    async def get_batch(session: AsyncSession, batch_schedule_id: UUID) -> Batch:
+        return await session.get(Batch, batch_schedule_id)
+invalid:
+  - |
+    async def delete_batch(batch_schedule_id: UUID) -> None:
+        async with session.begin():
+            await session.delete(batch_schedule_id)
+  - |
+    async def delete_batch(self, batch_schedule_id: UUID) -> None:
+        async with self.session.begin():
+            await self.session.delete(batch_schedule_id)

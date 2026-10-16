@@ -1,0 +1,44 @@
+# Project-local OMP settings.
+# See `omp://settings.md` for the full catalog and precedence rules.
+
+bashInterceptor:
+  enabled: true
+
+# ── Post hooks: disabled per tool call, run once as the closing gate ──────────
+#
+# 레퍼런스 실측(`make hook-report`, 125 세션 / 변이 도구 호출 18,760건): post 훅이
+# 호출 하나에 평균 3.8초를 썼고, 세션당 약 570초가 편집마다 전체 트리를 다시 읽는 데 들었다.
+# 같은 검사는 루트 `make verify` 의 선행 타깃으로 전부 들어 있어서, 한 번 돌리는 편이 싸다.
+#
+# 그래서 자동 실행만 끈다. 파일·make 타깃·마감 게이트는 그대로다:
+#   - pre/strict-* 훅은 살아 있다(파괴적 작업을 *막는* 장치라 사후 검사로 대체 불가)
+#   - continuity 확장의 마감 게이트가 마지막 변경 이후 루트 게이트 미실행 종료를 막는다
+#
+# id 형식은 `hook:<type>:<tool>:<name>` (omp://extension-loading.md, 훅 capability
+# toExtensionId). 배열은 전역 설정을 확장하지 않고 **대체**한다. 목록은 `.omp/hooks/post/`
+# 의 파일 집합과 같아야 한다 — 빠진 훅은 편집마다 전체 트리를 다시 읽는다.
+disabledExtensions:
+  - hook:post:check-backend-app-setup:check-backend-app-setup.ts
+  - hook:post:check-backend-core-config:check-backend-core-config.ts
+  - hook:post:check-backend-exceptions:check-backend-exceptions.ts
+  - hook:post:check-backend-layout:check-backend-layout.ts
+  - hook:post:check-backend-middleware:check-backend-middleware.ts
+  - hook:post:check-backend-model-files:check-backend-model-files.ts
+  - hook:post:check-backend-naming:check-backend-naming.ts
+  - hook:post:check-backend-repository-files:check-backend-repository-files.ts
+  - hook:post:check-backend-router-params:check-backend-router-params.ts
+  - hook:post:check-backend-service-injection:check-backend-service-injection.ts
+  - hook:post:check-backend-tests:check-backend-tests.ts
+  - hook:post:check-backend-transaction:check-backend-transaction.ts
+  - hook:post:check-code-layout:check-code-layout.ts
+  - hook:post:check-duplicate-blocks:check-duplicate-blocks.ts
+  - hook:post:check-frontend-api-layer:check-frontend-api-layer.ts
+  - hook:post:check-frontend-code:check-frontend-code.ts
+  - hook:post:check-frontend-domain:check-frontend-domain.ts
+  - hook:post:check-frontend-i18n:check-frontend-i18n.ts
+  - hook:post:check-frontend-layout:check-frontend-layout.ts
+  - hook:post:check-frontend-routing:check-frontend-routing.ts
+  - hook:post:check-makefiles:check-makefiles.ts
+  - hook:post:check-omp-types:check-omp-types.ts
+  - hook:post:check-tooling:check-tooling.ts
+  - hook:post:check-verify:check-verify.ts

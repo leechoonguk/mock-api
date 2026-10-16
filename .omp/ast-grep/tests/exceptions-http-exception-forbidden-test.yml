@@ -1,0 +1,13 @@
+id: exceptions-http-exception-forbidden
+valid:
+  - |
+    async def readiness(session: SessionDep) -> dict[str, str]:
+        raise ServiceUnavailableError("Database unavailable")
+invalid:
+  - |
+    async def readiness(session: SessionDep) -> dict[str, str]:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+  - |
+    async def get_current_user(token: str) -> User:
+        credentials_exception = HTTPException(status_code=401, detail="Could not validate credentials")
+        raise credentials_exception

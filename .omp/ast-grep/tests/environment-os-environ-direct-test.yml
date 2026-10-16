@@ -1,0 +1,9 @@
+id: env-os-environ-direct
+valid:
+  - |
+    name = settings.app_name
+invalid:
+  - |
+    name = os.environ["APP_NAME"]
+  - |
+    name = os.getenv("APP_NAME")

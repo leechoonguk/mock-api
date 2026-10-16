@@ -1,0 +1,141 @@
+### Project API — 프로젝트 CRUD + 하위 엔드포인트 CRUD + 요청 로그 조회·비우기 (slug는 unique)
+### 전제: backend 서버 실행 중 (make dev)
+### 순차 실행: 1번이 만든 프로젝트를 19번이 지운다 — 엔드포인트와 로그는 CASCADE로 함께 사라진다.
+###           실행이 끝나면 DB는 실행 전과 같다. slug에 {{$guid}}를 쓴다 — 재실행해도 409가 나지 않는다.
+@base = {{$dotenv API_ORIGIN}}/api/v1
+# 목 호출은 버전 프리픽스 밖이다. 요청 라인에는 {{$dotenv ...}}를 쓸 수 없어서 origin을 따로 둔다
+@origin = {{$dotenv API_ORIGIN}}
+# 체이닝 변수는 요청 블록 밖에 둔다 — 바디 뒤에 두면 REST Client가 JSON에 붙여 보내 422가 된다
+@projectId = {{createProject.response.body.id}}
+# 4번이 만든 엔드포인트
+@endpointId = {{createEndpoint.response.body.id}}
+# 10번 목록의 첫 로그(최신순)
+@requestLogId = {{listLogs.response.body.items[0].id}}
+
+### 1. Project 생성 — 201 (slug는 소문자·숫자·하이픈)
+# @name createProject
+POST {{base}}/project/
+Content-Type: application/json
+
+{
+  "name": "Demo {{$guid}}",
+  "slug": "demo-{{$guid}}",
+  "description": "REST Client 시나리오"
+}
+
+### 2. Project 목록 필터·정렬 — 200 (name 부분일치 — 1번 프로젝트가 보인다)
+GET {{base}}/project/?offset=0&limit=20&name={{createProject.response.body.name}}&sort=created_at&order=desc
+
+### 3. Project 단건 조회 — 200 (endpoint_count = 0)
+GET {{base}}/project/{{projectId}}
+
+### 4. Endpoint 생성 — 201 (path 파라미터 {id}를 바디 템플릿이 그대로 돌려준다)
+# 바디의 {{path.id}}·{{now}}는 REST Client 변수가 아니므로 그대로 전송되고, 서버가 목 응답에서 치환한다
+# @name createEndpoint
+POST {{base}}/project/{{projectId}}/endpoints
+Content-Type: application/json
+
+{
+  "method": "GET",
+  "path": "/users/{id}",
+  "status_code": 200,
+  "headers": {"X-Mock": "1"},
+  "body": "{\"id\": \"{{path.id}}\", \"at\": \"{{now}}\"}",
+  "delay_ms": 0,
+  "enabled": true,
+  "description": "사용자 단건"
+}
+
+### 5. Endpoint 생성 — 409 (같은 프로젝트에 같은 method + path — code: conflict)
+POST {{base}}/project/{{projectId}}/endpoints
+Content-Type: application/json
+
+{
+  "method": "GET",
+  "path": "/users/{id}"
+}
+
+### 6. Endpoint 생성 — 422 (같은 파라미터 이름이 두 번 — 패턴 오류)
+POST {{base}}/project/{{projectId}}/endpoints
+Content-Type: application/json
+
+{
+  "method": "GET",
+  "path": "/{id}/{id}"
+}
+
+### 7. Endpoint 목록 — 200 (4번 하나)
+GET {{base}}/project/{{projectId}}/endpoints?offset=0&limit=20
+
+### 8. Endpoint 수정 — 200 (version=2 — 상태코드만 바꾼다)
+PATCH {{base}}/project/{{projectId}}/endpoints/{{endpointId}}
+Content-Type: application/json
+
+{
+  "status_code": 201
+}
+
+### 9. 목 호출 — 201 (8번 상태코드와 4번 헤더 X-Mock: 1, 바디 {"id": "42", ...} — 로그 1건이 쌓인다)
+GET {{origin}}/mock/{{createProject.response.body.slug}}/users/42
+
+### 10. Request log 목록 — 200 (최신순 — 9번 호출이 matched=true로 보인다)
+# @name listLogs
+GET {{base}}/project/{{projectId}}/logs?offset=0&limit=20
+
+### 11. Request log 상세 — 200 (request_headers, request_body 포함)
+GET {{base}}/project/{{projectId}}/logs/{{requestLogId}}
+
+### 12. Request log 비우기 — 200 ({"ok": true})
+DELETE {{base}}/project/{{projectId}}/logs
+
+### 13. Endpoint 단건 조회 — 200
+GET {{base}}/project/{{projectId}}/endpoints/{{endpointId}}
+
+### 14. Endpoint 삭제 — 200 ({"ok": true})
+DELETE {{base}}/project/{{projectId}}/endpoints/{{endpointId}}
+
+### 15. Endpoint 단건 조회 — 404 (14번 삭제가 반영됐다 — code: not_found)
+GET {{base}}/project/{{projectId}}/endpoints/{{endpointId}}
+
+### 16. Project 생성 — 409 (1번 slug 재사용 — code: conflict)
+POST {{base}}/project/
+Content-Type: application/json
+
+{
+  "name": "Duplicate",
+  "slug": "{{createProject.response.body.slug}}"
+}
+
+### 17. Project 생성 — 422 (slug에 대문자·공백)
+POST {{base}}/project/
+Content-Type: application/json
+
+{
+  "name": "Bad slug",
+  "slug": "Bad Slug"
+}
+
+### 18. Project 수정 — 200 (version=2 — 설명만 바꾼다)
+PATCH {{base}}/project/{{projectId}}
+Content-Type: application/json
+
+{
+  "description": "수정됨"
+}
+
+### 19. Project 삭제 — 200 ({"ok": true} — 엔드포인트와 로그는 CASCADE)
+DELETE {{base}}/project/{{projectId}}
+
+### 20. Project 단건 조회 — 404 (19번 삭제가 반영됐다)
+GET {{base}}/project/{{projectId}}
+
+### 21. Project 수정 — 404 (없는 리소스 수정)
+PATCH {{base}}/project/{{projectId}}
+Content-Type: application/json
+
+{
+  "name": "Ghost"
+}
+
+### 22. Project 삭제 — 404 (없는 리소스 삭제)
+DELETE {{base}}/project/{{projectId}}

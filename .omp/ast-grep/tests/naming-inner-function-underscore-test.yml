@@ -1,0 +1,11 @@
+id: inner-function-underscore
+valid:
+  - |
+    def setup_exception_handler(app: FastAPI) -> None:
+        def _not_found_handler(request, exc):
+            return None
+invalid:
+  - |
+    def setup_exception_handler(app: FastAPI) -> None:
+        def not_found_handler(request, exc):
+            return None

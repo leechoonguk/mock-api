@@ -1,0 +1,18 @@
+id: env-hardcoded-port
+language: python
+# A literal port pins code to one topology: a container remap, a second local
+# stack, or a CI runner then fails with a connection error nobody can trace to
+# the string that caused it.
+#
+# Any port, not a list of them. The list named the three that existed
+# (5432/6379/8000), so moving the stack to another block would have made every
+# new literal legal - the defect is the literal, never its value.
+# `core/settings.py` is where a configured default is *declared* - the one place
+# this rule points callers to. Excluded by its path, not by its value: a default
+# origin there is configuration, the same string in a service is the defect.
+ignores:
+  - "**/core/settings.py"
+rule:
+  kind: string
+  regex: "localhost:[0-9]{4,5}"
+message: "hardcoded service port — use settings or Vite config, never literal ports in code"

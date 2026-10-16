@@ -1,0 +1,9 @@
+id: env-hardcoded-connection
+language: python
+# A literal connection string is the same in every environment, so a test or a
+# local run can reach production. Settings are the only place the URL differs
+# per deployment.
+rule:
+  kind: string
+  regex: "postgresql\\+asyncpg://[^\"']+"
+message: "hardcoded DATABASE_URL connection string — use settings.database_url"

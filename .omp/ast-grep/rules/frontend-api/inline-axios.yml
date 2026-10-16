@@ -1,0 +1,11 @@
+id: frontend-api-inline-axios
+language: tsx
+# `lib/api/client.ts` is the only place a client is built, because it is the
+# only place the bearer token is attached, a 401 ends the session and a failure
+# becomes an `ApiError`. A second instance skips all three and fails silently:
+# the request works, the session handling does not.
+rule:
+  pattern: axios.create($$$ARGS)
+owns:
+  - "axios.create"
+message: "build no second axios instance — import { api } from '@/lib/api/client'"

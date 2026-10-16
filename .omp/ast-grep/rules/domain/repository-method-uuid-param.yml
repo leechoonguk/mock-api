@@ -1,0 +1,16 @@
+id: repository-method-uuid-param
+language: python
+# The id type is the contract between layers. A repository that accepts `str`
+# forces every caller to guess whether conversion already happened, and a wrong
+# guess is a silent empty result rather than an error.
+#
+# The whitespace classes are load-bearing: an earlier `\(self, ` demanded the
+# signature fit on one line, so a domain whose name pushed it past the
+# 100-column limit failed a *typing* rule for a *formatting* reason. Measured:
+# it decided a table's name. This rule owns the id type and nothing else.
+rule:
+  kind: function_definition
+  regex: "^async def (get|update|delete)\\("
+  not:
+    regex: "^async def (get|update|delete)\\(\\s*self,\\s*\\w+: UUID"
+message: "repository get/update/delete must take `<name>_id: UUID` as first param"

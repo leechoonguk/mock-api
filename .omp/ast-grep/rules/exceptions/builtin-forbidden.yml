@@ -1,0 +1,27 @@
+id: exceptions-builtin-forbidden
+language: python
+# A builtin exception carries no HTTP meaning, so it escapes
+# setup_exception_handler and surfaces as a 500 with a stack trace. The only
+# exemption is a Pydantic validator: the framework requires ValueError there and
+# converts it into a 422 ValidationError, so the raise is inside a
+# `@field_validator`/`@model_validator` decorated function.
+rule:
+  any:
+    - pattern: raise ValueError($$$ARGS)
+    - pattern: raise RuntimeError($$$ARGS)
+    - pattern: raise Exception($$$ARGS)
+    - pattern: raise KeyError($$$ARGS)
+    - pattern: raise TypeError($$$ARGS)
+    - pattern: raise AssertionError($$$ARGS)
+    - pattern: raise NotImplementedError($$$ARGS)
+  not:
+    inside:
+      kind: decorated_definition
+      stopBy: end
+      has:
+        kind: decorator
+        regex: "field_validator|model_validator"
+owns:
+  - "raise ValueError"
+  - "raise RuntimeError"
+message: "raise a core exception (app/core/exceptions.py) — a builtin exception has no handler and answers 500; only Pydantic validators may raise ValueError"
