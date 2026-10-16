@@ -36,20 +36,6 @@ class NotFoundError(Exception):
         self.resource_id = resource_id
 
 
-class MockNotMatchedError(Exception):
-    """Raised when a project exists but none of its enabled endpoints answers the request.
-
-    Its own code, not `not_found`: the caller of a mock must tell "no such
-    project" (a wrong base URL) from "no endpoint for this method and path"
-    (a mock not written yet), and the body says which request missed.
-    """
-
-    def __init__(self, method: str, path: str) -> None:
-        super().__init__(f"No mock endpoint matches {method} {path}")
-        self.method = method
-        self.path = path
-
-
 class ServiceUnavailableError(Exception):
     """Raised when a dependency the app cannot serve without is unreachable.
 
@@ -60,6 +46,30 @@ class ServiceUnavailableError(Exception):
     def __init__(self, detail: str) -> None:
         super().__init__(detail)
         self.detail = detail
+
+
+class NotRecordableError(Exception):
+    """Raised when a request log has no recorded answer an endpoint can be made from.
+
+    Not forwarded, a request or answer body cut at the log limit or not text, or
+    a path, status or header an endpoint cannot hold.
+    """
+
+    def __init__(self, request_log_id: UUID) -> None:
+        super().__init__("Request log has no upstream answer that can be saved as an endpoint")
+        self.request_log_id = request_log_id
+
+
+class HostTakenError(Exception):
+    """Raised when a project claims a host pattern another project already intercepts.
+
+    A request's host must name one project, or the proxy could not tell whose
+    endpoints answer it and whose log it lands in.
+    """
+
+    def __init__(self, host: str) -> None:
+        super().__init__(f"Host {host} is intercepted by another project")
+        self.host = host
 
 
 # ============================================================
@@ -90,28 +100,9 @@ def setup_exception_handler(app: FastAPI) -> None:
             },
         )
 
-    @app.exception_handler(MockNotMatchedError)
-    async def _mock_not_matched_handler(request: Request, exc: MockNotMatchedError) -> JSONResponse:
-        """The miss, with the method and path the mock was asked for.
-
-        Echoed because the caller is usually a program under test whose logs
-        show only this body: what it requested is the first thing to compare
-        against the endpoints the project declares.
-        """
-        return JSONResponse(
-            status_code=404,
-            content={
-                "detail": f"No mock endpoint matches {exc.method} {exc.path}",
-                "code": "mock_not_matched",
-                "method": exc.method,
-                "path": exc.path,
-                REQUEST_ID_KEY: _request_id(request),
-            },
-        )
-
     @app.exception_handler(IntegrityError)
     async def _integrity_handler(request: Request, exc: IntegrityError) -> JSONResponse:
-        """A constraint the request violated: a taken slug, a duplicate method and path.
+        """A constraint the request violated: a duplicate method, host, path and conditions.
 
         The detail stays generic on purpose - a database message names columns
         and constraints the caller has no business reading.
@@ -147,6 +138,31 @@ def setup_exception_handler(app: FastAPI) -> None:
             content={
                 "detail": exc.detail,
                 "code": SERVICE_UNAVAILABLE_CODE,
+                REQUEST_ID_KEY: _request_id(request),
+            },
+        )
+
+    @app.exception_handler(NotRecordableError)
+    async def _not_recordable_handler(request: Request, exc: NotRecordableError) -> JSONResponse:
+        """The log names a request whose answer cannot become an endpoint."""
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": "Request log has no upstream answer that can be saved as an endpoint",
+                "code": "not_recordable",
+                REQUEST_ID_KEY: _request_id(request),
+            },
+        )
+
+    @app.exception_handler(HostTakenError)
+    async def _host_taken_handler(request: Request, exc: HostTakenError) -> JSONResponse:
+        """The host the caller named, so the form can mark it."""
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": f"Host {exc.host} is intercepted by another project",
+                "code": "host_taken",
+                "host": exc.host,
                 REQUEST_ID_KEY: _request_id(request),
             },
         )

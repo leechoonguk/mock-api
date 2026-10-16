@@ -6,6 +6,9 @@ from typing import Annotated, Literal
 
 from fastapi import Query
 
+from app.engine.matcher import RequestMethod
+from app.schemas.request_log import LogOutcome, StatusClass
+
 
 # ============================================================
 # Constants
@@ -13,6 +16,9 @@ from fastapi import Query
 
 #: The longest fragment a text filter takes - the widest filtered column.
 TEXT_FILTER_MAX_LENGTH = 120
+
+#: How many values one multi-select filter takes - more than any closed vocabulary here holds.
+FILTER_VALUES_MAX = 10
 
 
 # ============================================================
@@ -39,4 +45,9 @@ OrderQuery = Annotated[Literal["asc", "desc"], Query()]
 
 #: Which column the project list is sorted by - the columns its grid can sort.
 #: Closed on purpose: an open string would be one `getattr` away from a 500.
-ProjectSortQuery = Annotated[Literal["name", "slug", "created_at"] | None, Query()]
+ProjectSortQuery = Annotated[Literal["name", "created_at"] | None, Query()]
+
+#: The log screen's multi-selects: the parameter repeated (`method=GET&method=POST`), ORed.
+MethodFilterQuery = Annotated[list[RequestMethod] | None, Query(max_length=FILTER_VALUES_MAX)]
+StatusClassFilterQuery = Annotated[list[StatusClass] | None, Query(max_length=FILTER_VALUES_MAX)]
+OutcomeFilterQuery = Annotated[list[LogOutcome] | None, Query(max_length=FILTER_VALUES_MAX)]

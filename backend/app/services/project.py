@@ -9,7 +9,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import HostTakenError, NotFoundError
 from app.models.project import Project
 from app.repositories.endpoint import EndpointRepository
 from app.repositories.project import ProjectRepository
@@ -22,11 +22,10 @@ from app.schemas.project import ProjectCreateRequest, ProjectUpdateRequest
 
 
 class ProjectService:
-    """The mocked APIs: their rows, and how many endpoints each declares.
+    """The mocked APIs: their rows, the hosts each intercepts, and how many endpoints each declares.
 
-    A taken slug is not checked before the write: the unique constraint refuses
-    it, and the IntegrityError handler answers 409 - a check first would only
-    race the constraint it duplicates.
+    A host pattern belongs to one project: a create or edit that names one
+    another project holds is refused with `host_taken` (409).
     """
 
     def __init__(self, session: AsyncSession) -> None:
@@ -59,12 +58,15 @@ class ProjectService:
 
     async def create_project(self, data: ProjectCreateRequest) -> Project:
         async with self.session.begin():
+            await self._check_hosts_free(data.hosts, None)
             return await self.project_repository.create(data)
 
     async def update_project(self, project_id: UUID, data: ProjectUpdateRequest) -> Project:
         async with self.session.begin():
             if await self.project_repository.get(project_id) is None:
                 raise NotFoundError(project_id)
+            if data.hosts is not None:
+                await self._check_hosts_free(data.hosts, project_id)
             # The row was loaded in this transaction, so it is there to update.
             return cast(Project, await self.project_repository.update(project_id, data))
 
@@ -73,3 +75,15 @@ class ProjectService:
         async with self.session.begin():
             if not await self.project_repository.delete(project_id):
                 raise NotFoundError(project_id)
+
+    async def _check_hosts_free(self, hosts: list[str], project_id: UUID | None) -> None:
+        """Refuse a pattern another project than `project_id` already intercepts."""
+        taken = {
+            host
+            for project in await self.project_repository.list_with_hosts()
+            if project.id != project_id
+            for host in project.hosts
+        }
+        for host in hosts:
+            if host in taken:
+                raise HostTakenError(host)

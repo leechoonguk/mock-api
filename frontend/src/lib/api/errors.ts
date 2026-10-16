@@ -18,13 +18,16 @@ export class ApiError extends Error {
   readonly status: number
   readonly code: string
   readonly requestId: string | null
+  /** The host a 409 `host_taken` names, so a hosts editor can mark it. */
+  readonly host: string | null
 
-  constructor(status: number, code: string, message: string, requestId: string | null) {
+  constructor(status: number, code: string, message: string, requestId: string | null, host: string | null = null) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
     this.requestId = requestId
+    this.host = host
   }
 }
 
@@ -41,6 +44,7 @@ export function toApiError(error: unknown): ApiError {
       body?.code ?? UNKNOWN_ERROR_CODE,
       body?.detail ?? error.message,
       body?.request_id ?? null,
+      body?.host ?? null,
     )
   }
 

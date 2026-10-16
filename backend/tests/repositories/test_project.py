@@ -10,29 +10,27 @@ from app.schemas.endpoint import EndpointCreateInternal
 from app.schemas.project import ProjectCreateRequest, ProjectUpdateRequest
 
 
-async def test_create_and_read_back_by_id_and_slug(
+async def test_create_and_list_the_projects_that_intercept(
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """The mock resolves projects by slug, the admin API by id - both must find the row."""
+    """The proxy matches hosts against the projects that name any; one without is left out."""
     async with factory() as session, session.begin():
         repository = ProjectRepository(session)
-        project = await repository.create(ProjectCreateRequest(name="Demo", slug="demo"))
+        project = await repository.create(ProjectCreateRequest(name="Tube", hosts=["youtube.com"]))
+        await repository.create(ProjectCreateRequest(name="Idle"))
         assert (await repository.get(project.id)) is project
-        assert (await repository.get_by_slug("demo")) is project
-        assert await repository.get_by_slug("other") is None
+        assert [p.name for p in await repository.list_with_hosts()] == ["Tube"]
 
 
 async def test_list_filters_sorts_and_counts(factory: async_sessionmaker[AsyncSession]) -> None:
     """Filter, sort and window apply in SQL, and the count ignores the window."""
     async with factory() as session, session.begin():
         repository = ProjectRepository(session)
-        for name, slug in (("Beta", "b"), ("Alpha", "c"), ("Alphabet", "a")):
-            await repository.create(ProjectCreateRequest(name=name, slug=slug))
+        for name in ("Beta", "Alpha", "Alphabet"):
+            await repository.create(ProjectCreateRequest(name=name))
         assert [p.name for p in await repository.list()] == ["Alpha", "Alphabet", "Beta"]
-        by_slug = await repository.list(sort="slug", order="desc")
-        assert [p.slug for p in by_slug] == ["c", "b", "a"]
-        by_slug_asc = await repository.list(sort="slug")
-        assert [p.slug for p in by_slug_asc] == ["a", "b", "c"]
+        by_name = await repository.list(sort="name", order="desc")
+        assert [p.name for p in by_name] == ["Beta", "Alphabet", "Alpha"]
         assert [p.name for p in await repository.list(name="alpha", limit=1)] == ["Alpha"]
         assert await repository.count(name="alpha") == 2
         assert await repository.count() == 3
@@ -46,19 +44,18 @@ async def test_update_and_delete_report_a_missing_row(
         repository = ProjectRepository(session)
         assert await repository.update(uuid4(), ProjectUpdateRequest(name="x")) is None
         assert await repository.delete(uuid4()) is False
-        project = await repository.create(ProjectCreateRequest(name="Demo", slug="demo"))
+        project = await repository.create(
+            ProjectCreateRequest(name="Demo", hosts=["api.example.com"])
+        )
         updated = await repository.update(project.id, ProjectUpdateRequest(name="Renamed"))
         assert updated is not None
-        assert updated.name == "Renamed"
-        assert updated.slug == "demo"
+        assert (updated.name, updated.hosts) == ("Renamed", ["api.example.com"])
 
 
 async def test_delete_cascades_to_endpoints(factory: async_sessionmaker[AsyncSession]) -> None:
     """The database deletes a project's endpoints with it (foreign keys are enforced)."""
     async with factory() as session, session.begin():
-        project = await ProjectRepository(session).create(
-            ProjectCreateRequest(name="Demo", slug="demo")
-        )
+        project = await ProjectRepository(session).create(ProjectCreateRequest(name="Demo"))
         endpoint = await EndpointRepository(session).create(
             EndpointCreateInternal(project_id=project.id, method="GET", path="/users")
         )

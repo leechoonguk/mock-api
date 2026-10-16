@@ -1,16 +1,16 @@
 /**
- * Project create dialog — names a project and fixes its slug.
+ * Project create dialog — names a project, the hosts it intercepts and the
+ * fields it ignores when comparing requests.
  *
- * It creates and never edits: a row's name is edited in the row and its
- * description in the detail dialog, while the slug is the first segment of
- * every mocked URL and is chosen once. Until the reader types into the slug
- * field it follows the name (`Demo API` → `demo-api`), so the common case is
- * one field typed; a slug the server already holds comes back as `conflict`
- * and is shown on the slug field.
+ * It creates and never edits: a row's name is edited in the row, and the rest
+ * in the detail dialog. The hosts and the fields are chips (`ChipsInput`):
+ * typed one by one or pasted as a list, each judged before it lands; a host
+ * another project already intercepts comes back as `host_taken`, shown on the
+ * hosts field with its chip drawn red.
  */
 
-import { useEffect, useMemo, useRef } from 'react'
-import { useForm } from 'react-hook-form'
+import { useEffect, useMemo, useState } from 'react'
+import { Controller, useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { yupResolver } from '@hookform/resolvers/yup'
 import * as yup from 'yup'
@@ -19,28 +19,30 @@ import FormProvider from '@/components/hook-form/FormProvider'
 import FormDialogActions from '@/components/dialog/FormDialogActions'
 import FormDialogHeader from '@/components/dialog/FormDialogHeader'
 import RHFTextField from '@/components/hook-form/RHFTextField'
+import ChipsInput from '@/sections/project/ChipsInput'
+import { fieldChipRules, fieldsProblem } from '@/sections/project/fieldPattern'
+import { hostChipRules, hostsProblem } from '@/sections/project/hostPattern'
 import { useCreateProject } from '@/lib/api/hooks/useProject'
 import { useDiscardGuard } from '@/hooks/useDiscardGuard'
 import { useToast } from '@/hooks/useToast'
 import { applyServerError } from '@/lib/api/formErrors'
+import { toApiError } from '@/lib/api/errors'
 
 /** Lengths mirror `ProjectCreateRequest` on the server. */
 export const NAME_MAX_LENGTH = 120
 
-export const SLUG_MAX_LENGTH = 64
-
 export const DESCRIPTION_MAX_LENGTH = 512
-
-/** The server's slug pattern: lowercase words joined by single hyphens. */
-const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 interface ProjectFormValues {
   name: string
-  slug: string
   description: string
+  /** Normalized and judged as they became chips. */
+  hosts: string[]
+  /** Judged as they became chips; often left empty until the log suggests some. */
+  ignored_fields: string[]
 }
 
-const EMPTY_VALUES: ProjectFormValues = { name: '', slug: '', description: '' }
+const EMPTY_VALUES: ProjectFormValues = { name: '', description: '', hosts: [], ignored_fields: [] }
 
 interface ProjectFormDialogProps {
   open: boolean
@@ -54,8 +56,9 @@ export default function ProjectFormDialog({ open, onClose, onCreated }: ProjectF
   const { t: tCommon } = useTranslation('common')
   const toast = useToast()
   const createMutation = useCreateProject()
-  // Set once the reader edits the slug themselves; from then on the name no longer writes it.
-  const slugTouched = useRef(false)
+  // The host the server last refused as another project's: drawn red among the
+  // chips while the field still carries that refusal (a reset clears it).
+  const [takenHost, setTakenHost] = useState<string | null>(null)
 
   const schema = useMemo(
     () =>
@@ -65,15 +68,26 @@ export default function ProjectFormDialog({ open, onClose, onCreated }: ProjectF
           .trim()
           .required(tCommon('validation.required'))
           .max(NAME_MAX_LENGTH, tCommon('validation.max_length', { count: NAME_MAX_LENGTH })),
-        slug: yup
-          .string()
-          .required(tCommon('validation.required'))
-          .max(SLUG_MAX_LENGTH, tCommon('validation.max_length', { count: SLUG_MAX_LENGTH }))
-          .matches(SLUG_PATTERN, t('validation.slug_invalid')),
         description: yup
           .string()
           .defined()
           .max(DESCRIPTION_MAX_LENGTH, tCommon('validation.max_length', { count: DESCRIPTION_MAX_LENGTH })),
+        hosts: yup
+          .array()
+          .of(yup.string().defined())
+          .defined()
+          .test('hosts', (value, context) => {
+            const problem = hostsProblem(value, t)
+            return problem === undefined || context.createError({ message: problem })
+          }),
+        ignored_fields: yup
+          .array()
+          .of(yup.string().defined())
+          .defined()
+          .test('ignored_fields', (value, context) => {
+            const problem = fieldsProblem(value, t)
+            return problem === undefined || context.createError({ message: problem })
+          }),
       }),
     [t, tCommon],
   )
@@ -82,7 +96,7 @@ export default function ProjectFormDialog({ open, onClose, onCreated }: ProjectF
     resolver: yupResolver(schema),
     defaultValues: EMPTY_VALUES,
   })
-  const { setValue, subscribe, formState } = methods
+  const { formState } = methods
 
   // The caret starts in the first field once the dialog has entered (an
   // `autoFocus` lost to the dialog's own focus trap).
@@ -93,46 +107,28 @@ export default function ProjectFormDialog({ open, onClose, onCreated }: ProjectF
 
   useEffect(() => {
     if (!open) return
-    slugTouched.current = false
     methods.reset(EMPTY_VALUES)
   }, [open, methods])
-
-  /**
-   * The slug follows the name until the reader types into the slug. A form
-   * subscription rather than an `onChange` of either field: those belong to
-   * the field binding, and replacing one dropped react-hook-form's own update.
-   * A `change` on the slug is the reader's; a `setValue` carries no type.
-   */
-  useEffect(
-    () =>
-      subscribe({
-        formState: { values: true },
-        callback: ({ values, name, type }) => {
-          if (name === 'slug' && type === 'change') slugTouched.current = true
-          if (name !== 'name' || slugTouched.current) return
-          setValue('slug', slugify(values.name), { shouldDirty: true })
-        },
-      }),
-    [subscribe, setValue],
-  )
 
   const onSubmit = async (values: ProjectFormValues) => {
     try {
       const project = await createMutation.mutateAsync({
         name: values.name.trim(),
-        slug: values.slug,
         description: values.description,
+        hosts: values.hosts,
+        ignored_fields: values.ignored_fields,
       })
       toast.success(tCommon('messages.created'))
       onClose()
       onCreated(project.id)
     } catch (error) {
+      setTakenHost(toApiError(error).host)
       applyServerError(error, {
         t: tCommon,
         setError: methods.setError,
         toastError: toast.error,
-        // The one unique column a reader types is the slug.
-        fieldByCode: { conflict: 'slug' },
+        // The one unique value a reader types is a host.
+        fieldByCode: { host_taken: 'hosts' },
       })
     }
   }
@@ -151,7 +147,41 @@ export default function ProjectFormDialog({ open, onClose, onCreated }: ProjectF
         <DialogContent sx={{ p: 2 }}>
           <Stack spacing={2} sx={{ pt: 1 }}>
             <RHFTextField name="name" label={t('form.name')} />
-            <RHFTextField name="slug" label={t('form.slug')} helperText={t('form.slug_helper')} />
+            <Controller
+              name="hosts"
+              control={methods.control}
+              render={({ field: { ref, value, onChange, onBlur } }) => (
+                <ChipsInput
+                  value={value}
+                  onChange={onChange}
+                  onBlur={onBlur}
+                  rules={hostChipRules(t)}
+                  inputRef={ref}
+                  label={t('form.hosts')}
+                  placeholder={t('form.hosts_placeholder')}
+                  helperText={t('form.hosts_helper')}
+                  error={formState.errors.hosts?.message}
+                  takenItem={formState.errors.hosts?.type === 'server' ? takenHost : null}
+                />
+              )}
+            />
+            <Controller
+              name="ignored_fields"
+              control={methods.control}
+              render={({ field: { ref, value, onChange, onBlur } }) => (
+                <ChipsInput
+                  value={value}
+                  onChange={onChange}
+                  onBlur={onBlur}
+                  rules={fieldChipRules(t)}
+                  inputRef={ref}
+                  label={t('form.ignored_fields')}
+                  placeholder={t('form.ignored_fields_placeholder')}
+                  helperText={t('form.ignored_fields_helper')}
+                  error={formState.errors.ignored_fields?.message}
+                />
+              )}
+            />
             <RHFTextField name="description" label={t('form.description')} multiline minRows={2} />
           </Stack>
         </DialogContent>
@@ -160,14 +190,4 @@ export default function ProjectFormDialog({ open, onClose, onCreated }: ProjectF
       </FormProvider>
     </Dialog>
   )
-}
-
-/** A name as a slug: lowercase, every run of other characters one hyphen, none at the ends. */
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, SLUG_MAX_LENGTH)
-    .replace(/-+$/, '')
 }

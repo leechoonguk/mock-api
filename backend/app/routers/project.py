@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Response, status
 
 from app.core.page import Page
 from app.core.settings import settings
@@ -17,7 +17,7 @@ from app.dependencies.query import (
     ProjectSortQuery,
     TextFilterQuery,
 )
-from app.dependencies.services import EndpointServiceDep, ProjectServiceDep, RequestLogServiceDep
+from app.dependencies.services import EndpointServiceDep, ProjectServiceDep
 from app.schemas.endpoint import (
     EndpointCreateRequest,
     EndpointReadResponse,
@@ -28,17 +28,15 @@ from app.schemas.endpoint import to_read_list as endpoint_to_read_list
 from app.schemas.project import ProjectCreateRequest, ProjectReadResponse, ProjectUpdateRequest
 from app.schemas.project import to_read as project_to_read
 from app.schemas.project import to_read_list as project_to_read_list
-from app.schemas.request_log import RequestLogDetailResponse, RequestLogReadResponse, to_detail
-from app.schemas.request_log import to_read_list as request_log_to_read_list
 
 
 # ============================================================
 # Router
 # ============================================================
 
-# A project and its children: the endpoints it mocks and the log of what it was
-# sent. The children are nested here, under their parent's id, because neither
-# exists outside a project.
+# A project and the endpoints it mocks, nested under their parent's id because
+# none exists outside a project. Its request log is nested the same way, in
+# `routers/request_log.py`.
 router = APIRouter(
     prefix="/project",
     tags=["project"],
@@ -122,6 +120,15 @@ async def get_endpoint(
     return endpoint_to_read(await endpoint_service.get_endpoint(project_id, endpoint_id))
 
 
+@router.get("/{project_id}/endpoints/{endpoint_id}/body")
+async def get_endpoint_body(
+    project_id: UUID, endpoint_id: UUID, endpoint_service: EndpointServiceDep
+) -> Response:
+    """What the endpoint answers with - its stored file, or its body template as typed."""
+    content, content_type = await endpoint_service.get_endpoint_body(project_id, endpoint_id)
+    return Response(content=content, media_type=content_type)
+
+
 @router.patch("/{project_id}/endpoints/{endpoint_id}")
 async def update_endpoint(
     project_id: UUID,
@@ -137,36 +144,4 @@ async def delete_endpoint(
     project_id: UUID, endpoint_id: UUID, endpoint_service: EndpointServiceDep
 ) -> dict[str, bool]:
     await endpoint_service.delete_endpoint(project_id, endpoint_id)
-    return {"ok": True}
-
-
-@router.get("/{project_id}/logs")
-async def list_request_logs(
-    project_id: UUID,
-    request_log_service: RequestLogServiceDep,
-    offset: OffsetQuery = 0,
-    limit: LimitQuery = settings.items_per_user,
-) -> Page[RequestLogReadResponse]:
-    """One project's request log, newest first."""
-    return Page(
-        items=request_log_to_read_list(
-            await request_log_service.list_request_logs(project_id, offset, limit)
-        ),
-        total=await request_log_service.count_request_logs(project_id),
-    )
-
-
-@router.get("/{project_id}/logs/{request_log_id}")
-async def get_request_log(
-    project_id: UUID, request_log_id: UUID, request_log_service: RequestLogServiceDep
-) -> RequestLogDetailResponse:
-    """One logged request with the headers and body the list leaves out."""
-    return to_detail(await request_log_service.get_request_log(project_id, request_log_id))
-
-
-@router.delete("/{project_id}/logs")
-async def delete_request_logs(
-    project_id: UUID, request_log_service: RequestLogServiceDep
-) -> dict[str, bool]:
-    await request_log_service.delete_request_logs(project_id)
     return {"ok": True}

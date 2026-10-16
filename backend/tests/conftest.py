@@ -6,6 +6,9 @@ own file — the developer's database file, or an ambient environment variable.
 
 import os
 from collections.abc import AsyncIterator, Iterator
+from pathlib import Path
+from time import perf_counter
+from typing import Protocol
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,6 +20,8 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import StaticPool
 
+import app.core.settings as settings_module
+from app.core.proxy import InterceptedRequest
 from app.core.settings import Settings
 from app.dependencies import core as deps_core
 from app.main import app
@@ -80,3 +85,55 @@ def client(factory: async_sessionmaker[AsyncSession]) -> Iterator[TestClient]:
     with TestClient(app) as test_client:
         yield test_client
     deps_core.async_session_factory = previous
+
+
+@pytest.fixture(autouse=True)
+def body_store_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A body store of each test's own, so no test reads or sweeps the developer's files."""
+    directory = tmp_path / "bodies"
+    monkeypatch.setattr(settings_module.settings, "body_store_dir", str(directory))
+    return directory
+
+
+class BuildRequest(Protocol):
+    """The `intercepted` fixture: an intercepted request, every part defaulted but the path."""
+
+    def __call__(
+        self,
+        path: str = "/",
+        *,
+        method: str = "GET",
+        host: str = "api.example.com",
+        query: str = "",
+        body: bytes = b"",
+        headers: list[tuple[str, str]] | None = None,
+    ) -> InterceptedRequest:
+        """An intercepted request with the parts named, the rest defaulted."""
+        ...
+
+
+@pytest.fixture()
+def intercepted() -> BuildRequest:
+    """Build the request the proxy hands over: `GET https://api.example.com/` unless named."""
+
+    def build(
+        path: str = "/",
+        *,
+        method: str = "GET",
+        host: str = "api.example.com",
+        query: str = "",
+        body: bytes = b"",
+        headers: list[tuple[str, str]] | None = None,
+    ) -> InterceptedRequest:
+        return InterceptedRequest(
+            scheme="https",
+            host=host,
+            method=method,
+            path=path,
+            query=query,
+            headers=headers or [("Accept", "*/*")],
+            body=body,
+            started=perf_counter(),
+        )
+
+    return build

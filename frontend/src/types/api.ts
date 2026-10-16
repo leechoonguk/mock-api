@@ -11,6 +11,8 @@ export interface ApiErrorBody {
   detail: string
   code: string
   request_id: string | null
+  /** Only on a 409 `host_taken`: the host another project already intercepts. */
+  host?: string
 }
 
 /**
@@ -72,25 +74,4 @@ export interface ProjectFilterParams {
 /** `DELETE` endpoints answer `{"ok": true}` rather than 204. */
 export interface OkResponse {
   ok: boolean
-}
-
-/**
- * One request at the mock origin, as the test panel composes it: the path is
- * already prefixed (`MOCK_ENDPOINTS.SEND`), the body is sent as typed.
- */
-export interface RawRequest {
-  method: string
-  url: string
-  headers: Record<string, string>
-  body: string
-}
-
-/** What the mock origin answered, unparsed: any status is a result. */
-export interface RawResponse {
-  status: number
-  /** Lower-cased names; the browser shows only what CORS exposes. */
-  headers: Record<string, string>
-  body: string
-  /** Round trip, including the endpoint's configured delay. */
-  ms: number
 }

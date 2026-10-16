@@ -27,9 +27,12 @@ class ProjectRepository:
     async def get(self, project_id: UUID) -> Project | None:
         return await self.session.get(Project, project_id)
 
-    async def get_by_slug(self, slug: str) -> Project | None:
-        result = await self.session.execute(select(Project).where(Project.slug == slug))
-        return result.scalar_one_or_none()
+    async def list_with_hosts(self) -> list[Project]:
+        """Every project that intercepts a host - what a request's host is matched against."""
+        result = await self.session.execute(
+            select(Project).where(func.json_array_length(Project.hosts) > 0)
+        )
+        return list(result.scalars().all())
 
     async def list(
         self,
@@ -59,8 +62,8 @@ class ProjectRepository:
         project = await self.session.get(Project, project_id)
         if project is None:
             return None
-        # `exclude_none`: every column here is NOT NULL, so a JSON `null` in a
-        # PATCH can only mean "leave it", never "clear it".
+        # `exclude_none`: every column is NOT NULL, so a JSON `null` in a PATCH
+        # can only mean "leave it", never "clear it".
         for field, value in data.model_dump(exclude_unset=True, exclude_none=True).items():
             setattr(project, field, value)
         # Set before the flush: onupdate=func.now() evaluated lazily raises

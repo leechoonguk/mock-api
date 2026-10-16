@@ -19,11 +19,10 @@ export default defineConfig({
     // Another process on the port would otherwise move Vite to the next one
     // silently, and `make down` (which reads this port) would miss it.
     strictPort: true,
-    // The backend mounts its API at /api/v1, the mock router at /mock and the
-    // probe at /health, so every path is passed through unchanged.
+    // The backend mounts its API at /api/v1 and the probe at /health, so every
+    // path is passed through unchanged.
     proxy: {
       '/api': { target: BACKEND, changeOrigin: true },
-      '/mock': { target: BACKEND, changeOrigin: true },
       '/health': { target: BACKEND, changeOrigin: true },
     },
   },

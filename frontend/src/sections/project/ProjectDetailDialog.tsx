@@ -4,12 +4,15 @@
  * The stack is project dialog → panel, never project dialog → second modal: a
  * confirm dialog on top of this one hides the record it is asking about. So a
  * panel *replaces* the body while the project header stays on screen — the
- * endpoint editor, its test console, a logged request, and the two delete
- * confirmations — and "back" is a button in the panel's pinned strip.
+ * endpoint editor, a logged request, and the two delete confirmations — and
+ * "back" is a button in the panel's pinned strip.
  *
- * The header carries what a reader copies out of a project: the base URL its
- * endpoints answer at. The description is edited in place there; the name is
- * edited in the list row and the slug never.
+ * The header carries what a project intercepts and how: its hosts, the fields
+ * it ignores when comparing requests (with the ones its log suggests) and its
+ * description, edited in place, and the mode — `mock` answers from the
+ * endpoints, `record` lets the real server answer and logs the exchange, so the
+ * logs tab can save the ones worth replaying. Under them sits where a client
+ * points its proxy, and the CA certificate it must trust.
  *
  * The dialog owns the endpoint table's query and paging: opening an endpoint
  * unmounts the tab, and a page held there would return the reader to page 1.
@@ -22,10 +25,13 @@ import {
   Dialog,
   DialogContent,
   IconButton,
+  Link,
   Stack,
   Tab,
   Tabs,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography,
 } from '@mui/material'
@@ -41,21 +47,29 @@ import { useServerTablePage } from '@/hooks/useServerTablePage'
 import { useToast } from '@/hooks/useToast'
 import { useUrlTab } from '@/hooks/useUrlTab'
 import { toApiError } from '@/lib/api/errors'
+import type { ApiError } from '@/lib/api/errors'
 import { serverErrorMessage } from '@/lib/api/formErrors'
 import { useDeleteEndpoint, useEndpoint, useEndpointList, useUpdateEndpoint } from '@/lib/api/hooks/useEndpoint'
 import { useDeleteLog } from '@/lib/api/hooks/useLog'
-import { useMockBaseUrl } from '@/lib/api/hooks/useMock'
+import { useProxyCaUrl, useProxyStatus } from '@/lib/api/hooks/useMock'
 import { useProject, useUpdateProject } from '@/lib/api/hooks/useProject'
 import EndpointPanel from '@/sections/project/EndpointPanel'
-import EndpointTestPanel from '@/sections/project/EndpointTestPanel'
 import LogPanel from '@/sections/project/LogPanel'
 import { DESCRIPTION_MAX_LENGTH } from '@/sections/project/ProjectFormDialog'
+import ChipsEditField from '@/sections/project/ChipsEditField'
+import IgnoredFieldSuggestions from '@/sections/project/IgnoredFieldSuggestions'
+import { fieldChipRules, fieldsProblem } from '@/sections/project/fieldPattern'
+import { hostChipRules, hostsProblem } from '@/sections/project/hostPattern'
 import ProjectEndpointsTab from '@/sections/project/detail/ProjectEndpointsTab'
 import ProjectLogsTab from '@/sections/project/detail/ProjectLogsTab'
+import { NO_LOG_FILTERS, NO_LOG_SELECTION } from '@/sections/project/detail/ProjectLogsTab'
+import type { LogFilterValues } from '@/sections/project/detail/ProjectLogsTab'
 import { METHOD_COLORS } from '@/sections/project/methodColors'
 import { formatCount } from '@/utils/formatNumber'
 import type { Endpoint } from '@/types/endpoint'
-import type { Project } from '@/types/project'
+import { PROJECT_MODES } from '@/types/project'
+import type { Project, ProjectMode, ProjectUpdateRequest } from '@/types/project'
+import type { RequestLog } from '@/types/log'
 
 type DetailTab = 'endpoints' | 'logs'
 
@@ -68,7 +82,6 @@ type PanelMode =
   | { kind: 'tabs' }
   | { kind: 'endpointCreate' }
   | { kind: 'endpoint'; id: string }
-  | { kind: 'endpointTest'; id: string }
   | { kind: 'endpointDelete'; id: string }
   | { kind: 'log'; id: string }
   | { kind: 'clearLogs' }
@@ -107,6 +120,11 @@ export default function ProjectDetailDialog({ open, projectId, onClose }: Projec
   const endpoints = endpointPage.resolve(endpointQuery.data)
   useQueryErrorToast(endpointQuery, tCommon('messages.load_failed'))
 
+  // The log tab's page, filters and ticked rows: a row's panel unmounts the tab.
+  const logPage = useServerTablePage<RequestLog>()
+  const [logFilters, setLogFilters] = useState<LogFilterValues>(NO_LOG_FILTERS)
+  const [logSelection, setLogSelection] = useState<ReadonlySet<string>>(NO_LOG_SELECTION)
+
   const projectKey = project?.id ?? ''
   const updateEndpoint = useUpdateEndpoint(projectKey)
   const deleteEndpoint = useDeleteEndpoint(projectKey)
@@ -125,6 +143,9 @@ export default function ProjectDetailDialog({ open, projectId, onClose }: Projec
   const resetBody = () => {
     setMode(TABS)
     endpointPage.reset()
+    logPage.reset()
+    setLogFilters(NO_LOG_FILTERS)
+    setLogSelection(NO_LOG_SELECTION)
   }
 
   const toggle = async (endpoint: Endpoint, enabled: boolean) => {
@@ -149,6 +170,9 @@ export default function ProjectDetailDialog({ open, projectId, onClose }: Projec
     try {
       await clearLogs.mutateAsync()
       toast.success(t('log.cleared'))
+      // The ticked rows are gone with the log.
+      setLogSelection(NO_LOG_SELECTION)
+      logPage.reset()
       setMode(TABS)
     } catch (error) {
       toast.error(serverErrorMessage(toApiError(error).code, tCommon))
@@ -214,7 +238,6 @@ export default function ProjectDetailDialog({ open, projectId, onClose }: Projec
               pendingId={updateEndpoint.isPending ? (updateEndpoint.variables?.id ?? null) : null}
               onCreate={() => setMode({ kind: 'endpointCreate' })}
               onSelect={(endpoint) => setMode({ kind: 'endpoint', id: endpoint.id })}
-              onTest={(endpoint) => setMode({ kind: 'endpointTest', id: endpoint.id })}
               onDelete={(endpoint) => setMode({ kind: 'endpointDelete', id: endpoint.id })}
               onToggle={(endpoint, enabled) => void toggle(endpoint, enabled)}
             />
@@ -223,6 +246,11 @@ export default function ProjectDetailDialog({ open, projectId, onClose }: Projec
           {project !== undefined && showsTabs && tab === 'logs' && (
             <ProjectLogsTab
               projectId={project.id}
+              page={logPage}
+              filters={logFilters}
+              onFiltersChange={setLogFilters}
+              selection={logSelection}
+              onSelectionChange={setLogSelection}
               onSelect={(log) => setMode({ kind: 'log', id: log.id })}
               onClear={() => setMode({ kind: 'clearLogs' })}
             />
@@ -233,7 +261,6 @@ export default function ProjectDetailDialog({ open, projectId, onClose }: Projec
               projectId={project.id}
               endpoint={null}
               onCreated={(endpoint) => setMode({ kind: 'endpoint', id: endpoint.id })}
-              onTest={() => undefined}
               onBack={() => setMode(TABS)}
             />
           )}
@@ -251,17 +278,7 @@ export default function ProjectDetailDialog({ open, projectId, onClose }: Projec
               projectId={project.id}
               endpoint={selected}
               onCreated={() => undefined}
-              onTest={() => setMode({ kind: 'endpointTest', id: selected.id })}
               onBack={() => setMode(TABS)}
-            />
-          )}
-
-          {project !== undefined && mode.kind === 'endpointTest' && selected !== undefined && (
-            <EndpointTestPanel
-              key={selected.id}
-              slug={project.slug}
-              endpoint={selected}
-              onBack={() => setMode({ kind: 'endpoint', id: selected.id })}
             />
           )}
 
@@ -286,7 +303,12 @@ export default function ProjectDetailDialog({ open, projectId, onClose }: Projec
           )}
 
           {project !== undefined && mode.kind === 'log' && (
-            <LogPanel projectId={project.id} logId={mode.id} onBack={() => setMode(TABS)} />
+            <LogPanel
+              projectId={project.id}
+              logId={mode.id}
+              onBack={() => setMode(TABS)}
+              onRecorded={(endpoint) => setMode({ kind: 'endpoint', id: endpoint.id })}
+            />
           )}
 
           {project !== undefined && mode.kind === 'clearLogs' && (
@@ -310,102 +332,232 @@ export default function ProjectDetailDialog({ open, projectId, onClose }: Projec
 }
 
 /**
- * The project's identity: its name and slug, the base URL with a copy button,
- * and the description, edited in place.
+ * The project's identity: its name and endpoint count, the hosts it intercepts,
+ * the fields it ignores and its description, each edited in place, the mode,
+ * and the proxy to use.
  */
 function ProjectHeader({ project }: { project: Project }) {
   const { t } = useTranslation('project')
   const { t: tCommon } = useTranslation('common')
   const toast = useToast()
-  const baseUrl = useMockBaseUrl(project.slug)
   const update = useUpdateProject()
-  // `null` while reading; the draft while the description is being edited.
-  const [draft, setDraft] = useState<string | null>(null)
-  const tooLong = draft !== null && draft.length > DESCRIPTION_MAX_LENGTH
 
-  // The clipboard refusing is the browser's answer, not the server's: there is
-  // no code to map, so its sentence is this screen's own.
-  const copy = () =>
-    navigator.clipboard.writeText(baseUrl).then(
-      () => toast.success(t('detail.copied')),
-      () => toast.error(t('detail.copy_failed')),
-    )
-
-  const save = async () => {
-    if (draft === null || tooLong) return
+  /** Saves `data`: `null` once saved, the refusal (already toasted) when the server refuses it. */
+  const send = async (data: ProjectUpdateRequest): Promise<ApiError | null> => {
     try {
-      await update.mutateAsync({ id: project.id, data: { description: draft } })
+      await update.mutateAsync({ id: project.id, data })
       toast.success(tCommon('messages.saved'))
-      setDraft(null)
+      return null
     } catch (error) {
-      toast.error(serverErrorMessage(toApiError(error).code, tCommon))
+      const refusal = toApiError(error)
+      toast.error(serverErrorMessage(refusal.code, tCommon))
+      return refusal
     }
   }
+
+  const save = async (data: ProjectUpdateRequest) => (await send(data)) === null
 
   return (
     <Stack spacing={1}>
       <Box>
         <Typography variant="h6">{project.name}</Typography>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Label color="info">{project.slug}</Label>
-          <Typography variant="caption" color="text.secondary">
-            {t('detail.endpoint_count', { total: formatCount(project.endpoint_count) })}
-          </Typography>
-        </Stack>
+        <Typography variant="caption" color="text.secondary">
+          {t('detail.endpoint_count', { total: formatCount(project.endpoint_count) })}
+        </Typography>
       </Box>
 
-      <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0 }}>
-        <Typography variant="body2" sx={{ fontFamily: 'monospace' }} noWrap title={baseUrl}>
-          {baseUrl}
+      <ChipsEditField
+        items={project.hosts}
+        text={{
+          label: t('detail.hosts_label'),
+          empty: t('detail.no_hosts'),
+          edit: t('detail.edit_hosts'),
+          inputLabel: t('form.hosts'),
+          placeholder: t('form.hosts_placeholder'),
+          helper: t('form.hosts_helper'),
+        }}
+        rules={hostChipRules(t)}
+        problem={(hosts) => hostsProblem(hosts, t)}
+        pending={update.isPending}
+        onSave={(hosts) => send({ hosts })}
+        takenBy={(refusal) => (refusal.code === 'host_taken' ? refusal.host : null)}
+        takenMessage={tCommon('errors.host_taken')}
+      />
+
+      <ChipsEditField
+        items={project.ignored_fields}
+        text={{
+          label: t('detail.ignored_fields_label'),
+          empty: t('detail.no_ignored_fields'),
+          edit: t('detail.edit_ignored_fields'),
+          inputLabel: t('form.ignored_fields'),
+          placeholder: t('form.ignored_fields_placeholder'),
+          helper: t('form.ignored_fields_helper'),
+        }}
+        rules={fieldChipRules(t)}
+        problem={(fields) => fieldsProblem(fields, t)}
+        pending={update.isPending}
+        onSave={(fields) => send({ ignored_fields: fields })}
+      />
+
+      <IgnoredFieldSuggestions
+        projectId={project.id}
+        ignoredCount={project.ignored_fields.length}
+        pending={update.isPending}
+        onAdd={(name) => void send({ ignored_fields: [...project.ignored_fields, name] })}
+      />
+
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={project.mode}
+          disabled={update.isPending}
+          aria-label={t('detail.mode')}
+          onChange={(_event, next: ProjectMode | null) => {
+            // Clicking the pressed button deselects it - a click, not a mode.
+            if (next !== null && next !== project.mode) void save({ mode: next })
+          }}
+        >
+          {PROJECT_MODES.map((mode) => (
+            <ToggleButton
+              key={mode}
+              value={mode}
+              // Record logs what the hosts' real servers answer, so there is nothing to record without one.
+              disabled={update.isPending || (mode === 'record' && project.hosts.length === 0)}
+              sx={{ px: 1.5, py: 0.25 }}
+            >
+              {t(`mode.${mode}`)}
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+        <Typography variant="caption" color="text.secondary">
+          {t(`detail.mode_hint.${project.mode}`)}
         </Typography>
-        <Tooltip title={t('detail.copy_url')}>
-          <IconButton size="small" aria-label={t('detail.copy_url')} onClick={() => void copy()}>
-            <Iconify name="copy" />
+      </Stack>
+
+      <ProxyHint />
+
+      <InlineEditField
+        value={project.description}
+        empty={t('detail.no_description')}
+        label={t('form.description')}
+        editLabel={t('detail.edit_description')}
+        multiline
+        pending={update.isPending}
+        problem={(draft) =>
+          draft.length > DESCRIPTION_MAX_LENGTH
+            ? tCommon('validation.max_length', { count: DESCRIPTION_MAX_LENGTH })
+            : undefined
+        }
+        onSave={(draft) => save({ description: draft })}
+      />
+    </Stack>
+  )
+}
+
+/**
+ * Where a client points its HTTP(S) proxy to reach the project, the CA it must
+ * trust once the proxy has made one, and a warning while nothing listens there.
+ */
+function ProxyHint() {
+  const { t } = useTranslation('project')
+  const { data: proxy } = useProxyStatus()
+  const caUrl = useProxyCaUrl()
+
+  if (proxy === undefined) return null
+  return (
+    <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
+      <Typography variant="caption" color="text.secondary">
+        {t('detail.proxy_label')}
+      </Typography>
+      <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
+        {`${proxy.host}:${proxy.port}`}
+      </Typography>
+      {!proxy.listening && <Label color="warning">{t('detail.proxy_not_listening')}</Label>}
+      {proxy.ca_ready && (
+        <Link href={caUrl} download variant="caption">
+          {t('detail.proxy_ca')}
+        </Link>
+      )}
+    </Stack>
+  )
+}
+
+interface InlineEditFieldProps {
+  value: string
+  /** Shown in place of an empty value. */
+  empty: string
+  label: string
+  editLabel: string
+  multiline?: boolean
+  pending: boolean
+  /** Why the draft cannot be saved, or `undefined` when it can. */
+  problem: (draft: string) => string | undefined
+  /** Resolves `true` once saved, which closes the editor; `false` keeps the draft. */
+  onSave: (draft: string) => Promise<boolean>
+}
+
+/** One header value that reads as text and turns into a field with save and cancel. */
+function InlineEditField({
+  value,
+  empty,
+  label,
+  editLabel,
+  multiline = false,
+  pending,
+  problem,
+  onSave,
+}: InlineEditFieldProps) {
+  const { t: tCommon } = useTranslation('common')
+  // `null` while reading; the draft while the value is being edited.
+  const [draft, setDraft] = useState<string | null>(null)
+  const error = draft === null ? undefined : problem(draft)
+
+  const save = async () => {
+    if (draft === null || error !== undefined) return
+    if (await onSave(draft)) setDraft(null)
+  }
+
+  if (draft === null) {
+    return (
+      <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0 }}>
+        <Typography variant="body2" color="text.secondary">
+          {value === '' ? empty : value}
+        </Typography>
+        <Tooltip title={editLabel}>
+          <IconButton size="small" aria-label={editLabel} onClick={() => setDraft(value)}>
+            <Iconify name="edit" />
           </IconButton>
         </Tooltip>
       </Stack>
+    )
+  }
 
-      {draft === null ? (
-        <Stack direction="row" spacing={0.5} alignItems="center">
-          <Typography variant="body2" color="text.secondary">
-            {project.description === '' ? t('detail.no_description') : project.description}
-          </Typography>
-          <Tooltip title={t('detail.edit_description')}>
-            <IconButton
-              size="small"
-              aria-label={t('detail.edit_description')}
-              onClick={() => setDraft(project.description)}
-            >
-              <Iconify name="edit" />
-            </IconButton>
-          </Tooltip>
-        </Stack>
-      ) : (
-        <Stack direction="row" spacing={1} alignItems="flex-start">
-          <TextField
-            size="small"
-            label={t('form.description')}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            error={tooLong}
-            helperText={tooLong ? tCommon('validation.max_length', { count: DESCRIPTION_MAX_LENGTH }) : undefined}
-            multiline
-            fullWidth
-            autoFocus
-          />
-          <IconButton
-            size="small"
-            aria-label={tCommon('actions.save')}
-            onClick={() => void save()}
-            disabled={update.isPending || tooLong}
-          >
-            <Iconify name="check" />
-          </IconButton>
-          <IconButton size="small" aria-label={tCommon('actions.cancel')} onClick={() => setDraft(null)}>
-            <Iconify name="close" />
-          </IconButton>
-        </Stack>
-      )}
+  return (
+    <Stack direction="row" spacing={1} alignItems="flex-start">
+      <TextField
+        size="small"
+        label={label}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        error={error !== undefined}
+        helperText={error}
+        multiline={multiline}
+        fullWidth
+        autoFocus
+      />
+      <IconButton
+        size="small"
+        aria-label={tCommon('actions.save')}
+        onClick={() => void save()}
+        disabled={pending || error !== undefined}
+      >
+        <Iconify name="check" />
+      </IconButton>
+      <IconButton size="small" aria-label={tCommon('actions.cancel')} onClick={() => setDraft(null)}>
+        <Iconify name="close" />
+      </IconButton>
     </Stack>
   )
 }

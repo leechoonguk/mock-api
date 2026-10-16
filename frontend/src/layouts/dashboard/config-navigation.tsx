@@ -43,6 +43,9 @@ export interface NavGroup {
 export const NAV_GROUPS: NavGroup[] = [
   {
     subheaderKey: null,
-    items: [{ titleKey: 'project', path: PATHS.project, icon: 'project' }],
+    items: [
+      { titleKey: 'project', path: PATHS.project, icon: 'project' },
+      { titleKey: 'proxy', path: PATHS.proxy, icon: 'proxy' },
+    ],
   },
 ]

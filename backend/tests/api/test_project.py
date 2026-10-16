@@ -1,4 +1,4 @@
-"""Project admin API: the project CRUD contract and its nested endpoints and logs.
+"""Project admin API: the project CRUD contract and its nested endpoints.
 
 The admin screen is the only client, and it branches on status codes and the
 `code` field - so each case pins both, not just that the call "worked".
@@ -15,8 +15,8 @@ MISSING = "00000000-0000-0000-0000-000000000000"
 BASE = "/api/v1/project/"
 
 
-def _create_project(client: TestClient, slug: str = "demo", name: str = "Demo") -> dict[str, Any]:
-    response = client.post(BASE, json={"name": name, "slug": slug})
+def _create_project(client: TestClient, name: str = "Demo", **fields: Any) -> dict[str, Any]:
+    response = client.post(BASE, json={"name": name, **fields})
     assert response.status_code == 201
     return response.json()
 
@@ -36,49 +36,55 @@ def test_create_project(client: TestClient) -> None:
     """A new project starts with no endpoints and an optimistic-lock version of one."""
     body = _create_project(client)
     assert body["id"]
-    assert body["slug"] == "demo"
+    assert (body["hosts"], body["mode"]) == ([], "mock")
     assert body["endpoint_count"] == 0
     assert body["version"] == 1
     assert body["created_at"].endswith("Z")
 
 
 def test_create_project_422(client: TestClient) -> None:
-    """A missing slug is refused at the boundary: the slug is every mocked URL's segment."""
-    response = client.post(BASE, json={"name": "No slug"})
+    """A missing name is refused at the boundary."""
+    response = client.post(BASE, json={"description": "No name"})
     assert response.status_code == 422
 
 
-def test_create_project_rejects_slug_with_uppercase(client: TestClient) -> None:
-    """A slug must be typeable into a URL as is, so capitals and spaces are refused."""
-    response = client.post(BASE, json={"name": "Bad", "slug": "Bad Slug"})
+def test_create_project_normalizes_and_validates_hosts(client: TestClient) -> None:
+    """Hosts are stored lower-case and once each; a URL, a port or a bad label is a 422."""
+    body = _create_project(client, hosts=[" YouTube.com ", "*.ytimg.com", "youtube.com", ""])
+    assert body["hosts"] == ["youtube.com", "*.ytimg.com"]
+    for bad in ("https://example.com", "example.com:443", "exa mple.com", "*.*.com"):
+        response = client.post(BASE, json={"name": "Bad", "hosts": [bad]})
+        assert response.status_code == 422, bad
+    response = client.patch(f"{BASE}{body['id']}", json={"hosts": ["example.com/x"]})
     assert response.status_code == 422
 
 
-def test_create_project_duplicate_slug_conflict(client: TestClient) -> None:
-    """Two projects cannot share a slug - the form shows `conflict` on the slug field."""
-    _create_project(client)
-    response = client.post(BASE, json={"name": "Other", "slug": "demo"})
+def test_create_project_host_taken_409(client: TestClient) -> None:
+    """A host another project intercepts is refused with `host_taken`, naming the host."""
+    _create_project(client, hosts=["youtube.com"])
+    response = client.post(BASE, json={"name": "Other", "hosts": ["YOUTUBE.com"]})
     assert response.status_code == 409
-    assert response.json()["code"] == "conflict"
+    assert (response.json()["code"], response.json()["host"]) == ("host_taken", "youtube.com")
 
 
 def test_list_projects(client: TestClient) -> None:
     """The page carries the total under the filter, so the grid can page past the window."""
-    _create_project(client, "alpha", "Alpha")
-    _create_project(client, "beta", "Beta")
-    _create_project(client, "gamma", "Gamma")
+    _create_project(client, "Alpha")
+    _create_project(client, "Beta")
+    _create_project(client, "Gamma")
     response = client.get(BASE, params={"limit": 2})
     assert response.status_code == 200
     body = response.json()
     assert body["total"] == 3
-    assert [item["slug"] for item in body["items"]] == ["alpha", "beta"]
+    assert [item["name"] for item in body["items"]] == ["Alpha", "Beta"]
 
     filtered = client.get(BASE, params={"name": "amm"}).json()
     assert filtered["total"] == 1
-    assert filtered["items"][0]["slug"] == "gamma"
+    assert filtered["items"][0]["name"] == "Gamma"
 
-    ordered = client.get(BASE, params={"sort": "slug", "order": "desc"}).json()
-    assert [item["slug"] for item in ordered["items"]] == ["gamma", "beta", "alpha"]
+    ordered = client.get(BASE, params={"sort": "name", "order": "desc"}).json()
+    assert [item["name"] for item in ordered["items"]] == ["Gamma", "Beta", "Alpha"]
+    assert client.get(BASE, params={"sort": "slug"}).status_code == 422
 
 
 def test_list_projects_counts_endpoints(client: TestClient) -> None:
@@ -144,6 +150,28 @@ def test_delete_project_not_found(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+def test_project_ignored_fields_are_trimmed_kept_once_and_replaced(client: TestClient) -> None:
+    """Names are stored trimmed, each once; a blank name is a 422; a PATCH replaces the list."""
+    project = _create_project(client, ignored_fields=[" cpn ", "rn", "cpn"])
+    assert project["ignored_fields"] == ["cpn", "rn"]
+    assert client.post(BASE, json={"name": "Bad", "ignored_fields": ["  "]}).status_code == 422
+    url = f"{BASE}{project['id']}"
+    assert client.patch(url, json={"ignored_fields": ["t"]}).json()["ignored_fields"] == ["t"]
+    assert client.patch(url, json={"ignored_fields": None}).json()["ignored_fields"] == ["t"]
+
+
+def test_project_mode_and_hosts_are_edited_in_place(client: TestClient) -> None:
+    """A PATCH switches the mode and replaces the host list; `null` leaves either as it is."""
+    project = _create_project(client, hosts=["api.example.com"])
+    url = f"{BASE}{project['id']}"
+    recording = client.patch(url, json={"mode": "record"}).json()
+    assert (recording["mode"], recording["hosts"]) == ("record", ["api.example.com"])
+    replaced = client.patch(url, json={"hosts": ["*.example.com"], "mode": None}).json()
+    assert (replaced["mode"], replaced["hosts"]) == ("record", ["*.example.com"])
+    assert client.patch(url, json={"hosts": []}).json()["hosts"] == []
+    assert client.patch(url, json={"mode": "replay"}).status_code == 422
+
+
 def test_create_endpoint(client: TestClient) -> None:
     """The path is stored in its one normalized spelling, which is what requests match."""
     project = _create_project(client)
@@ -174,6 +202,21 @@ def test_create_endpoint_rejects_bad_pattern_422(client: TestClient) -> None:
             f"/api/v1/project/{project['id']}/endpoints", json={"method": "GET", "path": path}
         )
         assert response.status_code == 422
+
+
+def test_endpoint_host_is_one_name_or_every_host(client: TestClient) -> None:
+    """A host is stored lower-case; a wildcard or a URL is a 422; "" answers on every host."""
+    project = _create_project(client)
+    url = f"{BASE}{project['id']}/endpoints"
+    body = client.post(url, json={"method": "GET", "host": "API.Example.com", "path": "/a"}).json()
+    assert body["host"] == "api.example.com"
+    for bad in ("*.example.com", "https://example.com"):
+        response = client.post(url, json={"method": "GET", "host": bad, "path": "/b"})
+        assert response.status_code == 422, bad
+    endpoint_url = f"{url}/{body['id']}"
+    assert client.patch(endpoint_url, json={"host": "*.x.com"}).status_code == 422
+    assert client.patch(endpoint_url, json={"host": ""}).json()["host"] == ""
+    assert client.patch(endpoint_url, json={"host": None}).json()["host"] == ""
 
 
 def test_create_endpoint_rejects_header_with_line_break(client: TestClient) -> None:
@@ -278,61 +321,13 @@ def test_delete_endpoint_not_found(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_list_request_logs(client: TestClient) -> None:
-    """Every mocked call is listed newest first, misses included."""
-    project = _create_project(client)
-    _create_endpoint(client, project["id"])
-    client.get("/mock/demo/users/1")
-    client.get("/mock/demo/nope")
-    response = client.get(f"/api/v1/project/{project['id']}/logs")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["total"] == 2
-    assert [item["path"] for item in body["items"]] == ["/nope", "/users/1"]
-    assert "request_headers" not in body["items"][0]
-
-
-def test_get_request_log(client: TestClient) -> None:
-    """The detail adds the request's headers and body, which the list leaves out."""
-    project = _create_project(client)
-    client.post("/mock/demo/anything", content=b"payload", headers={"X-Trace": "t1"})
-    log = client.get(f"/api/v1/project/{project['id']}/logs").json()["items"][0]
-    response = client.get(f"/api/v1/project/{project['id']}/logs/{log['id']}")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["request_body"] == "payload"
-    assert body["request_headers"]["x-trace"] == "t1"
-    assert body["matched"] is False
-
-
-def test_get_request_log_not_found(client: TestClient) -> None:
-    """An unknown log id is a 404, like every other id."""
-    project = _create_project(client)
-    response = client.get(f"/api/v1/project/{project['id']}/logs/{MISSING}")
-    assert response.status_code == 404
-
-
-def test_delete_request_logs(client: TestClient) -> None:
-    """Clearing the log empties it and leaves the project and its endpoints alone."""
-    project = _create_project(client)
-    _create_endpoint(client, project["id"])
-    client.get("/mock/demo/users/1")
-    response = client.delete(f"/api/v1/project/{project['id']}/logs")
-    assert response.status_code == 200
-    assert response.json() == {"ok": True}
-    assert client.get(f"/api/v1/project/{project['id']}/logs").json()["total"] == 0
-    assert client.get(f"/api/v1/project/{project['id']}").json()["endpoint_count"] == 1
-
-
 def test_csrf_refuses_admin_write_from_untrusted_origin(client: TestClient) -> None:
     """A page on another origin cannot drive the admin API, while the admin UI can."""
-    evil = client.post(
-        BASE, json={"name": "Evil", "slug": "evil"}, headers={"Origin": "http://evil.example"}
-    )
+    evil = client.post(BASE, json={"name": "Evil"}, headers={"Origin": "http://evil.example"})
     assert evil.status_code == 403
     trusted = client.post(
         BASE,
-        json={"name": "Ours", "slug": "ours"},
+        json={"name": "Ours"},
         headers={"Origin": settings.csrf_trusted_origins[0], "Sec-Fetch-Site": "same-site"},
     )
     assert trusted.status_code == 201

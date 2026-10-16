@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.core.exceptions import (
-    MockNotMatchedError,
+    HostTakenError,
     NotFoundError,
     ServiceUnavailableError,
     setup_exception_handler,
@@ -23,7 +23,7 @@ def _raising_app() -> FastAPI:
     setup_exception_handler(app)
     failures: dict[str, Exception] = {
         "not-found": NotFoundError("abc"),
-        "not-matched": MockNotMatchedError("PUT", "/x"),
+        "host-taken": HostTakenError("youtube.com"),
         "integrity": IntegrityError("INSERT", {}, Exception("UNIQUE constraint failed")),
         "stale": StaleDataError("version mismatch"),
         "unavailable": ServiceUnavailableError("Database unavailable"),
@@ -43,7 +43,7 @@ def _raising_app() -> FastAPI:
     ("name", "status", "code"),
     [
         ("not-found", 404, "not_found"),
-        ("not-matched", 404, "mock_not_matched"),
+        ("host-taken", 409, "host_taken"),
         ("integrity", 409, "conflict"),
         ("stale", 409, "stale_version"),
         ("unavailable", 503, "service_unavailable"),
@@ -67,8 +67,7 @@ def test_request_id_comes_from_request_state_then_header() -> None:
     assert echoed.json()["request_id"] == "from-client"
 
 
-def test_mock_miss_names_the_request_it_missed() -> None:
-    """The caller's logs show only this body, so it carries the method and path asked for."""
-    body = TestClient(_raising_app()).get("/not-matched").json()
-    assert (body["method"], body["path"]) == ("PUT", "/x")
-    assert str(MockNotMatchedError("PUT", "/x")) == "No mock endpoint matches PUT /x"
+def test_host_taken_names_the_host() -> None:
+    """The form marks the one host another project holds, so the body names it."""
+    body = TestClient(_raising_app()).get("/host-taken").json()
+    assert body["host"] == "youtube.com"

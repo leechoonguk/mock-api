@@ -64,6 +64,7 @@ const NAV_ICON_ROOT = '/assets/icons/navbar'
 
 export const NAV_ICONS = {
   project: `${NAV_ICON_ROOT}/ic_project.svg`,
+  proxy: `${NAV_ICON_ROOT}/ic_proxy.svg`,
 } as const
 
 /** The brand mark, drawn like a nav glyph so it inherits the primary colour. */

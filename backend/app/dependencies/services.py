@@ -10,7 +10,6 @@ from fastapi import Depends
 
 from app.dependencies.core import SessionDep
 from app.services.endpoint import EndpointService
-from app.services.mock import MockService
 from app.services.project import ProjectService
 from app.services.request_log import RequestLogService
 
@@ -32,10 +31,6 @@ def get_request_log_service(session: SessionDep) -> RequestLogService:
     return RequestLogService(session)
 
 
-def get_mock_service(session: SessionDep) -> MockService:
-    return MockService(session)
-
-
 # ============================================================
 # Dependencies
 # ============================================================
@@ -43,4 +38,3 @@ def get_mock_service(session: SessionDep) -> MockService:
 ProjectServiceDep = Annotated[ProjectService, Depends(get_project_service)]
 EndpointServiceDep = Annotated[EndpointService, Depends(get_endpoint_service)]
 RequestLogServiceDep = Annotated[RequestLogService, Depends(get_request_log_service)]
-MockServiceDep = Annotated[MockService, Depends(get_mock_service)]

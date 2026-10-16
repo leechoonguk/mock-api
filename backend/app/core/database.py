@@ -5,7 +5,7 @@
 from typing import Any
 
 from sqlalchemy import Engine, event, make_url
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.core.settings import settings
 
@@ -37,14 +37,22 @@ def _enable_foreign_keys(dbapi_connection: Any, _record: Any) -> None:
     cursor.close()
 
 
-if make_url(settings.database_url).database in IN_MEMORY_DATABASES:
-    # An in-memory database lives in one connection, so it has no pool to size.
-    engine = create_async_engine(settings.database_url, pool_pre_ping=True)
-else:
-    engine = create_async_engine(
+def create_engine() -> AsyncEngine:
+    """An engine on the configured database - one per event loop that opens connections.
+
+    The proxy runs its own loop and builds its own engine with this: an
+    aiosqlite connection belongs to the loop that opened it.
+    """
+    if make_url(settings.database_url).database in IN_MEMORY_DATABASES:
+        # An in-memory database lives in one connection, so it has no pool to size.
+        return create_async_engine(settings.database_url, pool_pre_ping=True)
+    return create_async_engine(
         settings.database_url,
         pool_size=5,
         max_overflow=10,
         pool_timeout=30,
         pool_pre_ping=True,
     )
+
+
+engine = create_engine()

@@ -170,6 +170,8 @@ interface PagedTableSectionProps<T> {
   subtitle?: string
   /** The row the reader has chosen, drawn selected; a click on it is the caller's to read. */
   selected?: (row: T) => boolean
+  /** The sentence an empty collection says; the generic "no data" when omitted. */
+  empty?: string
 }
 
 export default function PagedTableSection<T>({
@@ -186,6 +188,7 @@ export default function PagedTableSection<T>({
   rowLink,
   subtitle,
   selected,
+  empty,
 }: PagedTableSectionProps<T>) {
   const { t: tCommon } = useTranslation('common')
   const follow = useFollowRecord()
@@ -206,7 +209,7 @@ export default function PagedTableSection<T>({
     >
       {count === 0 ? (
         <Typography variant="body2" color="text.secondary">
-          {tCommon('messages.no_data')}
+          {empty ?? tCommon('messages.no_data')}
         </Typography>
       ) : (
         <Table

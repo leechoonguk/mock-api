@@ -5,12 +5,19 @@
  * header carry `endpoint_count`, which a create or delete changes.
  */
 
+import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { QueryClient } from '@tanstack/react-query'
 import { QUERY_STALE_TIME } from '@/lib/api/queryDefaults'
 import { endpointKeys, projectKeys } from '@/lib/api/queryKeys'
 import { endpointService } from '@/lib/api/services/endpoint.service'
-import type { EndpointCreateRequest, EndpointListParams, EndpointUpdateRequest } from '@/types/endpoint'
+import type {
+  EndpointCreateRequest,
+  EndpointListParams,
+  EndpointRecordManyRequest,
+  EndpointRecordRequest,
+  EndpointUpdateRequest,
+} from '@/types/endpoint'
 
 export function useEndpointList(params: EndpointListParams | null) {
   return useQuery({
@@ -67,8 +74,38 @@ export function useDeleteEndpoint(projectId: string) {
   })
 }
 
+/** Saves a logged real-server answer as an endpoint - a create, so the count moves too. */
+export function useRecordEndpoint(projectId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ logId, data }: { logId: string; data: EndpointRecordRequest }) =>
+      endpointService.record(projectId, logId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: endpointKeys.lists() })
+      invalidateProject(queryClient, projectId)
+    },
+  })
+}
+
+/** Saves the selected logs as endpoints in one request - creates, so the count moves too. */
+export function useRecordEndpoints(projectId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: EndpointRecordManyRequest) => endpointService.recordMany(projectId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: endpointKeys.lists() })
+      invalidateProject(queryClient, projectId)
+    },
+  })
+}
+
 /** The count a project row and its dialog header show moved with the write. */
 function invalidateProject(queryClient: QueryClient, projectId: string) {
   queryClient.invalidateQueries({ queryKey: projectKeys.lists() })
   queryClient.invalidateQueries({ queryKey: projectKeys.detail(projectId) })
+}
+
+/** Where the bytes the endpoint answers download, for a plain link. */
+export function useEndpointBodyUrl(projectId: string, id: string) {
+  return useMemo(() => endpointService.bodyUrl(projectId, id), [projectId, id])
 }

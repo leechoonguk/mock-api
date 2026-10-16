@@ -1,26 +1,31 @@
 /**
- * Mock hooks: the send verb, and the base URL a project answers at.
+ * Mock hooks: the forward proxy's status, and where its CA certificate downloads.
  *
- * Sending is a mutation, not a query: every send is a call the mock server
- * logs, so it is triggered by the reader and never refetched on focus. Its
- * success marks the request log stale — the call just wrote a row there.
+ * No admin write changes the proxy, so its status is never invalidated: it is
+ * read fresh on every mount and focus, and polled while shown — the proxy can
+ * start listening, or generate its CA, while the screen is open.
  */
 
 import { useMemo } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { logKeys } from '@/lib/api/queryKeys'
+import { useQuery } from '@tanstack/react-query'
+import { QUERY_STALE_TIME } from '@/lib/api/queryDefaults'
+import { proxyKeys } from '@/lib/api/queryKeys'
 import { mockService } from '@/lib/api/services/mock.service'
-import type { MockSendInput } from '@/lib/api/services/mock.service'
+import type { ProxyStatus } from '@/types/proxy'
 
-export function useSendMock() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (input: MockSendInput) => mockService.send(input),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: logKeys.lists() }),
+/** How often a shown proxy status asks again. */
+const PROXY_STATUS_POLL_MS = 10_000
+
+export function useProxyStatus() {
+  return useQuery<ProxyStatus>({
+    queryKey: proxyKeys.detail('status'),
+    queryFn: () => mockService.status(),
+    staleTime: QUERY_STALE_TIME.REALTIME,
+    refetchInterval: PROXY_STATUS_POLL_MS,
   })
 }
 
-/** A project's base URL, for the header to show and copy. */
-export function useMockBaseUrl(slug: string) {
-  return useMemo(() => mockService.baseUrl(slug), [slug])
+/** The CA certificate's download URL, for a plain link. */
+export function useProxyCaUrl() {
+  return useMemo(() => mockService.caUrl(), [])
 }

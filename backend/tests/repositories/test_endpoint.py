@@ -10,8 +10,8 @@ from app.schemas.endpoint import EndpointCreateInternal, EndpointUpdateRequest
 from app.schemas.project import ProjectCreateRequest
 
 
-async def _project(session: AsyncSession, slug: str) -> UUID:
-    project = await ProjectRepository(session).create(ProjectCreateRequest(name=slug, slug=slug))
+async def _project(session: AsyncSession, name: str) -> UUID:
+    project = await ProjectRepository(session).create(ProjectCreateRequest(name=name))
     return project.id
 
 

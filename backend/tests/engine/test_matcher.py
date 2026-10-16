@@ -9,7 +9,15 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from app.engine.matcher import find_best, normalize_path, pattern_problem
+from app.engine.matcher import (
+    NO_CONDITIONS,
+    condition_key,
+    find_best,
+    normalize_path,
+    pattern_problem,
+    strip_body,
+    strip_query,
+)
 
 
 EPOCH = datetime(2026, 1, 1, tzinfo=UTC)
@@ -24,10 +32,20 @@ class Route:
     enabled: bool = True
     created_at: datetime = EPOCH
     id: UUID = field(default_factory=uuid4)
+    match_query: str | None = None
+    match_body: str | None = None
+    host: str = ""
 
 
-def _winner(routes: list[Route], method: str, path: str) -> tuple[Route, dict[str, str]] | None:
-    return find_best(routes, method, path)
+def _winner(
+    routes: list[Route],
+    method: str,
+    path: str,
+    query: str = "",
+    body: str = "",
+    host: str = "api.example.com",
+) -> tuple[Route, dict[str, str]] | None:
+    return find_best(routes, method, host, path, query, body)
 
 
 def test_literal_segment_beats_parameter() -> None:
@@ -102,3 +120,73 @@ def test_normalize_path_spells_one_form() -> None:
     assert normalize_path("/") == "/"
     assert normalize_path("users//5/") == "/users/5"
     assert normalize_path("///") == "/"
+
+
+def test_query_condition_matches_the_same_pairs_in_any_order() -> None:
+    """A recorded query answers its own pairs however written, and nothing more or less."""
+    page = Route("GET", "/orders", match_query="page=2&size=10")
+    assert _winner([page], "GET", "/orders", query="size=10&page=2") == (page, {})
+    assert _winner([page], "GET", "/orders", query="page=2") is None
+    assert _winner([page], "GET", "/orders", query="page=2&size=10&x=1") is None
+    assert _winner([page], "GET", "/orders") is None
+
+
+def test_body_condition_compares_json_whatever_its_spelling() -> None:
+    """A JSON body matches by value; a text body only byte for byte; an empty one only empty."""
+    search = Route("POST", "/search", match_body='{"q": "a", "n": 1}')
+    assert _winner([search], "POST", "/search", body='{"n":1,"q":"a"}') == (search, {})
+    assert _winner([search], "POST", "/search", body='{"n":2,"q":"a"}') is None
+    text = Route("POST", "/note", match_body="hello")
+    assert _winner([text], "POST", "/note", body="hello ") is None
+    empty = Route("POST", "/ping", match_body="")
+    assert _winner([empty], "POST", "/ping") == (empty, {})
+    assert _winner([empty], "POST", "/ping", body="x") is None
+
+
+def test_conditioned_route_beats_an_open_one_and_falls_back_to_it() -> None:
+    """The recorded exact request wins its own call; any other call reaches the open route."""
+    open_route = Route("POST", "/search")
+    exact = Route("POST", "/search", match_body='{"q":"a"}', created_at=EPOCH + timedelta(days=1))
+    assert _winner([open_route, exact], "POST", "/search", body='{"q":"a"}') == (exact, {})
+    assert _winner([open_route, exact], "POST", "/search", body='{"q":"b"}') == (open_route, {})
+
+
+def test_condition_key_names_one_route_per_canonical_pair() -> None:
+    """Two spellings of one condition share a key; no condition is the empty key."""
+    assert condition_key(None, None) == NO_CONDITIONS
+    assert condition_key("b=2&a=1", '{"x": 1}') == condition_key("a=1&b=2", '{"x":1}')
+    assert condition_key("", None) != condition_key(None, "")
+    assert condition_key("", None) != NO_CONDITIONS
+
+
+def test_named_host_beats_any_host_and_other_hosts_miss() -> None:
+    """A route on one host answers only there, and wins over the project-wide route."""
+    anywhere = Route("GET", "/feed")
+    youtube = Route("GET", "/feed", host="www.youtube.com", created_at=EPOCH + timedelta(days=1))
+    assert _winner([anywhere, youtube], "GET", "/feed", host="www.youtube.com") == (youtube, {})
+    assert _winner([anywhere, youtube], "GET", "/feed", host="m.youtube.com") == (anywhere, {})
+    assert _winner([youtube], "GET", "/feed", host="m.youtube.com") is None
+
+
+def test_ignored_fields_leave_query_and_json_body() -> None:
+    """An ignored name goes from the query and from JSON objects at any depth; text stays."""
+    assert strip_query("v=1&cpn=a&cpn=b&t=9", {"cpn", "t"}) == "v=1"
+    assert strip_query("v=1&cpn=a", ()) == "v=1&cpn=a"
+    body = '{"q":"a","ctx":{"cpn":"x","list":[{"rn":1,"k":2}]}}'
+    assert strip_body(body, {"cpn", "rn"}) == '{"q":"a","ctx":{"list":[{"k":2}]}}'
+    assert strip_body("cpn=x", {"cpn"}) == "cpn=x"
+    assert strip_body(body, ()) == body
+
+
+def test_ignored_fields_match_a_call_that_differs_only_in_them() -> None:
+    """A recorded call answers the next one whose nonce changed; any other change still misses."""
+    watch = Route("GET", "/watch", match_query="v=abc&cpn=111", match_body='{"rn":1,"q":"x"}')
+    ignored = {"cpn", "rn"}
+
+    def winner(query: str, body: str) -> tuple[Route, dict[str, str]] | None:
+        return find_best([watch], "GET", "api.example.com", "/watch", query, body, ignored)
+
+    assert winner("cpn=222&v=abc", '{"q":"x","rn":7}') == (watch, {})
+    assert winner("v=xyz&cpn=111", '{"rn":1,"q":"x"}') is None
+    assert winner("v=abc", '{"q":"y"}') is None
+    assert _winner([watch], "GET", "/watch", "v=abc&cpn=222", '{"rn":1,"q":"x"}') is None
